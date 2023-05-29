@@ -12,12 +12,14 @@ Global Context Mechanism for Sequence Labeling
 * Named Entity Recognition: [Conll2003](https://www.clips.uantwerpen.be/conll2003/ner/), [wnut2017](https://noisy-text.github.io/2017/emerging-rare-entities.html), [weibo](https://github.com/OYE93/Chinese-NLP-Corpus/tree/master/NER/Weibo)
 * Part of Speech Tagging: [Universal Dependencies](https://universaldependencies.org/#-universal-dependencies)
 # Hyperparameters
+## Learning rate
  | Layers | Rest14 | Rest15 | Rest16 | Laoptop14 | Conll2003 | Wnut2017 | Weibo | Conll2003 | UD |       
  |---|---|---|---|---|---|---|---|---|---|
  | BERT | 1E-5 | 1E-5 | 1E-5 | 1E-5 | 1E-5 | 1E-5 | 1E-5 | 1E-5 | 1E-5 |
  | BiLSTM | 5E-4 | 1E-3 | 5E-4 | 5E-4 | 1E-3 | 1E-3 | 1E-3 | 1E-3 | 1E-3 |
  | context | 1E-3 | 1E-3 | 1E-5 | 1E-5 | 1E-3 | 1E-3 | 1E-3 | 1E-4 | 1E-3 |
  | classification | 1E-4 | 1E-4 | 1E-4 | 1E-4 | 1E-4 | 1E-4 | 1E-4 | 1E-4 | 1E-4 |   \
+## Other Details
  bert-base-chinese and bert-base-cased is used for English datasets and Chinese datasets respectively.
  batch size:
 * ABSA: Rest14 32, Rest15 16, Rest16 32, Laptop14 16.
