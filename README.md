@@ -34,8 +34,8 @@ Global Context Mechanism for Sequence Labeling
 * use_context: using context mechanism or not. default: False
 * context_mechanism: which context mechanism will be used.  default: global
 * mode: using pretrained language or not. default: pretrained
-* tagger_size: dimension of BiLSTM output. default 600
-in case of that you have specific dataset format, making a new reader function which is a parameter to construct the Dataset classs \
+* tagger_size: dimension of BiLSTM output. default 600   \
+In case of that you have specific dataset format, making a new reader function which is a parameter to construct the Dataset classes. \
 Rename the files under each dataset to train.txt, valid.txt and test.txt respectively. the format samples are given under each dataset directory.
 # Results
 | Layers | Rest14 | Rest15 | Rest16 | Laoptop14 | Conll2003 | Wnut2017 | Weibo | Conll2003 | UD |
