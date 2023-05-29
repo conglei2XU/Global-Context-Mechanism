@@ -17,7 +17,7 @@ Global Context Mechanism for Sequence Labeling
  | BERT | 1E-5 | 1E-5 | 1E-5 | 1E-5 | 1E-5 | 1E-5 | 1E-5 | 1E-5 | 1E-5 |
  | BiLSTM | 5E-4 | 1E-3 | 5E-4 | 5E-4 | 1E-3 | 1E-3 | 1E-3 | 1E-3 | 1E-3 |
  | context | 1E-3 | 1E-3 | 1E-5 | 1E-5 | 1E-3 | 1E-3 | 1E-3 | 1E-4 | 1E-3 |
- | classification | 1E-4 | 1E-4 | 1E-4 | 1E-4 | 1E-4 | 1E-4 | 1E-4 | 1E-4 | 1E-4 |
+ | classification | 1E-4 | 1E-4 | 1E-4 | 1E-4 | 1E-4 | 1E-4 | 1E-4 | 1E-4 | 1E-4 |   \
  bert-base-chinese and bert-base-cased is used for English datasets and Chinese datasets respectively.
  batch size:
 * ABSA: Rest14 32, Rest15 16, Rest16 32, Laptop14 16.
