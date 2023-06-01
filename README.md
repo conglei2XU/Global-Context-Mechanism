@@ -26,15 +26,20 @@ Global Context Mechanism for Sequence Labeling
 * NER: 16 is applied for all datasets.
 * POS Tagging: 16 is applied for all datasets.
 # Quick Start
-    python main.py --dataset_type absa --dataset_name rest14 --use_tagger True --use_context True 
+    python main.py --task_type absa --dataset_name rest14 --use_tagger True --use_context True 
 # Usages
 * model_name: pretrained model name.   default: bert-base-cased
 * cache_dir: the directory to save pretrained model.
 * use_tagger: using BiLSTM or not. default: True
-* use_context: using context mechanism or not. default: False
-* context_mechanism: which context mechanism will be used.  default: global
-* mode: using pretrained language or not. default: pretrained
-* tagger_size: dimension of BiLSTM output. default 600   \
+* use_context: using context mechanism or not. default: False.
+* learning_rate: learning rate of BERT layer. default: 1e-5
+* learning_rate_tagger: learning rate of BiLSTM layer. default: 1e-3
+* learning_rate_context: learning rate of context layer. default: 1e-3
+* learning_rate_classifier: learning rate of classifier layer. default: 1e-3
+* context_mechanism: which context mechanism will be used.  default: global.
+* mode: using pretrained language or not. default: pretrained.
+* no_improve: early stop steps. default 5. 
+* tagger_size: dimension of BiLSTM output. default 600.   \
 In case of that you have specific dataset format, making a new reader function which is a parameter to construct the Dataset classes. \
 Rename the files under each dataset to train.txt, valid.txt and test.txt respectively. the format samples are given under each dataset directory.
 # Results
