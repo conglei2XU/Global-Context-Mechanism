@@ -21,7 +21,7 @@ Global Context Mechanism for Sequence Labeling
  | classification | 1E-4 | 1E-4 | 1E-4 | 1E-4 | 1E-4 | 1E-4 | 1E-4 | 1E-4 | 1E-4 |
  | no_improve | 10 | 10 | 5 | 10 | 5 | 5 | 5 | 5 | 5 |
 ## Other Details
- bert-base-chinese and bert-base-cased is used for English datasets and Chinese datasets respectively.
+ bert-base-chinese and bert-base-cased is used for Chinese datasets and English datasets respectively.
  batch size:
 * ABSA: Rest14 32, Rest15 16, Rest16 32, Laptop14 16.
 * NER: 16 is applied for all datasets.
