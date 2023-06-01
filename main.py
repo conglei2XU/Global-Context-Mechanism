@@ -119,6 +119,9 @@ def init_args():
     argument.add_argument('--num_epoch', type=int, default=300)
     argument.add_argument('--batch_size', type=int, default=16)
     argument.add_argument('--learning_rate', type=float, default=1e-5)
+    argument.add_argument('--learning_rate_tagger', type=float, default=1e-3)
+    argument.add_argument('--learning_rate_context', type=float, default=1e-3)
+    argument.add_argument('--learning_rate_classifier', type=float, default=1e-4)
     argument.add_argument('--momentum', type=float, default=0.9)
     argument.add_argument('--dropout_rate', type=float, default=0.1)
     argument.add_argument('--grad_norm', type=float, default=5.0, help="argument for cutting gradient")
@@ -216,10 +219,10 @@ def pretrained_mode(args):
     model.to(device=device)
     param_ = [n for n, p in model.named_parameters() if 'context' in n]
     param_groups = [
-            {'params': [p for n, p in model.named_parameters() if 'tagger' in n], 'lr': 1e-3},
-        {'params': [p for n, p in model.named_parameters() if 'bert' in n]},
-        {'params': [p for n, p in model.named_parameters() if 'context' in n], 'lr': 1e-3},
-        {'params': model.classifier.parameters(), 'lr': 1e-4}
+            {'params': [p for n, p in model.named_parameters() if 'tagger' in n], 'lr': args.learning_rate_tagger},
+        {'params': [p for n, p in model.named_parameters() if 'bert' in n], },
+        {'params': [p for n, p in model.named_parameters() if 'context' in n], 'lr': args.learning_rate_context},
+        {'params': model.classifier.parameters(), 'lr': args.learning_rate_classifier}
     ]
     # optimizer = optim.AdamW(model.parameters(), lr=args.learning_rate, eps=args.adam_eps)
     optimizer = optim.AdamW(param_groups, lr=args.learning_rate, eps=args.adam_eps)
