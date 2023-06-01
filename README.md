@@ -35,7 +35,7 @@ Global Context Mechanism for Sequence Labeling
 * learning_rate: learning rate of BERT layer. default: 1e-5
 * learning_rate_tagger: learning rate of BiLSTM layer. default: 1e-3
 * learning_rate_context: learning rate of context layer. default: 1e-3
-* learning_rate_classifier: learning rate of classifier layer. default: 1e-3
+* learning_rate_classifier: learning rate of classifier layer. default: 1e-4
 * context_mechanism: which context mechanism will be used.  default: global.
 * mode: using pretrained language or not. default: pretrained.
 * no_improve: early stop steps. default 5. 
