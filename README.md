@@ -18,7 +18,8 @@ Global Context Mechanism for Sequence Labeling
  | BERT | 1E-5 | 1E-5 | 1E-5 | 1E-5 | 1E-5 | 1E-5 | 1E-5 | 1E-5 | 1E-5 |
  | BiLSTM | 5E-4 | 1E-3 | 5E-4 | 5E-4 | 1E-3 | 1E-3 | 1E-3 | 1E-3 | 1E-3 |
  | context | 1E-3 | 1E-3 | 1E-5 | 1E-5 | 1E-3 | 1E-3 | 1E-3 | 1E-4 | 1E-3 |
- | classification | 1E-4 | 1E-4 | 1E-4 | 1E-4 | 1E-4 | 1E-4 | 1E-4 | 1E-4 | 1E-4 |   \
+ | classification | 1E-4 | 1E-4 | 1E-4 | 1E-4 | 1E-4 | 1E-4 | 1E-4 | 1E-4 | 1E-4 |
+ | no_improve | 10 | 10 | 5 | 10 | 5 | 5 | 5 | 5 | 5 |
 ## Other Details
  bert-base-chinese and bert-base-cased is used for English datasets and Chinese datasets respectively.
  batch size:
@@ -29,6 +30,7 @@ Global Context Mechanism for Sequence Labeling
     python main.py --task_type absa --dataset_name rest14 --use_tagger True --use_context True 
 # Usages
 * model_name: pretrained model name.   default: bert-base-cased
+* dataset_dir: root directory of Dataset. default: Dataset
 * cache_dir: the directory to save pretrained model.
 * use_tagger: using BiLSTM or not. default: True
 * use_context: using context mechanism or not. default: False.
@@ -40,8 +42,10 @@ Global Context Mechanism for Sequence Labeling
 * mode: using pretrained language or not. default: pretrained.
 * no_improve: early stop steps. default 5. 
 * tagger_size: dimension of BiLSTM output. default 600.   \
+\
 In case of that you have specific dataset format, making a new reader function which is a parameter to construct the Dataset classes. \
-Rename the files under each dataset to train.txt, valid.txt and test.txt respectively. the format samples are given under each dataset directory.
+Rename the files under each dataset to train.txt, valid.txt and test.txt respectively. the format samples are given under each dataset directory.\
+**use dataset_dir + task_type + dataset_name to fetch data** 
 # Results
 | Layers | Rest14 | Rest15 | Rest16 | Laoptop14 | Conll2003 | Wnut2017 | Weibo | Conll2003 | UD |
 |---|---|---|---|---|---|---|---|---|---|
