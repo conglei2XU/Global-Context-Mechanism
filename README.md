@@ -1,4 +1,4 @@
-# Global-Context-Mechanism
+# Supplementary Features of BiLSTM for Enhanced Sequence Labeling
 [Supplementary Features of BiLSTM for Enhanced Sequence Labeling](https://arxiv.org/abs/2305.19928)
 ![Overview of the model Architecture](overview.png)
 # Requirements
