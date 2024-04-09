@@ -72,12 +72,12 @@ class TransformerModel(nn.Module):
         return output
 
 
-class BertForSeqTask(BertPreTrainedModel, ABC):
+class BertForSeqTask(nn.Module):
 
-    def __init__(self, bert_config):
+    def __init__(self, model_name, bert_config):
 
-        super().__init__(bert_config)
-        self.bert = BertModel(bert_config)
+        super(BertForSeqTask, self).__init__()
+        self.bert = AutoModel.from_pretrained(model_name)
         tagger_config = bert_config.tagger_config
         self.use_tagger = bert_config.use_tagger
         self.use_context = bert_config.use_context

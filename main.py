@@ -1,11 +1,11 @@
 # --*-- coding: utf-8 --*--
 import os
+
 os.environ['CUBLAS_WORKSPACE_CONFIG'] = ':16:8'
 import argparse
 import random
 from functools import partial
 from collections import Counter, defaultdict
-
 
 import pickle
 import logging
@@ -29,11 +29,10 @@ from PipeLine.vocabulary import TokenAlphabet
 from PipeLine.glue_utils_transformer import SeqDataset, CollateFnSeq
 from model.transformer_base import BertForSeqTask
 from model.rnn import RNNNet
+from model.S_LSTM import SLSTMCell
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-
 
 READER = {
     'absa': ner_reader,
@@ -46,6 +45,9 @@ METRIC = {
     'NER': NERMetric,
     'pos': POSMetric
 }
+
+MODEL = {'lstm': RNNNet,
+         's-lstm': SLSTMCell}
 
 
 def build_counter(dataset_path, reader_method=None, use_char=False,
@@ -82,27 +84,28 @@ def build_counter(dataset_path, reader_method=None, use_char=False,
 def init_alphabet(word_counter, char_counter=None, label_counter=None, use_crf=False):
     label_token_default = default_token_label_crf if use_crf else default_token_label
     word_alphabet, char_alphabet, label_alphabet = TokenAlphabet(default_token=default_token), \
-                                                   TokenAlphabet(default_token=default_token), \
-                                                   TokenAlphabet(default_token=label_token_default, is_label=True, use_crf=use_crf)
+        TokenAlphabet(default_token=default_token), \
+        TokenAlphabet(default_token=label_token_default, is_label=True, use_crf=use_crf)
     word_alphabet.build(word_counter)
     char_alphabet.build(char_counter)
     label_alphabet.build(label_counter, is_label=True)
     return word_alphabet, char_alphabet, label_alphabet
 
 
-
 def init_args():
     argument = argparse.ArgumentParser()
     # basic configuration
-    argument.add_argument('--log_dir', type=str, default='/home/cs.aau.dk/ut65zx/log')
-    argument.add_argument('--cache_dir', type=str, help='pretrained model cache directory', default='/home/cs.aau.dk/ut65zx/bert-base-cased')
-    argument.add_argument('--result_dir', type=str, default='/home/cs.aau.dk/ut65zx/results/')
+    argument.add_argument('--log_dir', type=str, default='log')
+    argument.add_argument('--cache_dir', type=str, help='pretrained model cache directory',
+                          default='bert-base-cased')
+    argument.add_argument('--result_dir', type=str, default='results')
     argument.add_argument('--dataset_dir', type=str, default='Dataset')
-    argument.add_argument('--model_dir', type=str, default='/home/cs.aau.dk/ut65zx/saved_model')
-    argument.add_argument('--tmp_dir', type=str, default='/home/cs.aau.dk/ut65zx/tmp')
+    argument.add_argument('--model_dir', type=str, default='saved_model')
+    argument.add_argument('--tmp_dir', type=str, default='tmp')
     argument.add_argument('--device', type=str, default='cuda')
     argument.add_argument('--fix_pretrained', type=str, default='False')
-    argument.add_argument('--best_model', type=str, default='/home/cs.aau.dk/ut65zx/saved_model-tagger-context/bert-base-chinese_13.pth')
+    argument.add_argument('--best_model', type=str,
+                          default='/home/cs.aau.dk/ut65zx/saved_model-tagger-context/bert-base-chinese_13.pth')
     # tasks specified configuration
     argument.add_argument('--task_type', type=str, default='NER')
     # argument.add_argument('--task_type', type=str, default='pos')
@@ -116,7 +119,7 @@ def init_args():
     argument.add_argument('--use_context', type=str, default='True')
     argument.add_argument('--context_mechanism', type=str, choices=['global', 'self-attention'], default='global')
     argument.add_argument('--seed', type=int, default=40)
-    argument.add_argument('--num_epoch', type=int, default=300)
+    argument.add_argument('--num_epoch', type=int, default=200)
     argument.add_argument('--batch_size', type=int, default=16)
     argument.add_argument('--learning_rate', type=float, default=1e-5)
     argument.add_argument('--learning_rate_tagger', type=float, default=1e-3)
@@ -130,13 +133,13 @@ def init_args():
     argument.add_argument('--warmup_step', type=int, default=5, help='how many steps to execute warmup strategy')
     argument.add_argument('--warmup_strategy', type=str, choices=['None', 'Linear', 'Cosine', 'Constant'],
                           default='None')
-    argument.add_argument('--no_improve', type=int, default=4, help='how many steps no improvement to stop training')
+    argument.add_argument('--no_improve', type=int, default=100, help='how many steps no improvement to stop training')
     # configuration for light models
     argument.add_argument('--use_char', type=str, default='False')
     argument.add_argument('--word_vector', type=str, default=r'WordVector/glove.6B.100d.txt')
     # argument.add_argument('--word_vector', type=str,
     #                       default=r'/home/WordVector/glove.twitter.27B.200d.txt')
-    argument.add_argument('--word_dim', type=int, default=100)
+    argument.add_argument('--word_dim', type=int, default=300)
     argument.add_argument('--char_dim', type=int, default=30)
     argument.add_argument('--char_embedding_dim', type=int, default=30)
     argument.add_argument('--hidden_dim', type=int, default=300)
@@ -145,12 +148,12 @@ def init_args():
     argument.add_argument('--num_layers', type=int, default=1)
     argument.add_argument('--use_flair', type=str, default='False')
     argument.add_argument('--char_window_size', type=int, default=3)
-    argument.add_argument('--extra_word_feature', type=str, default='True')
-    argument.add_argument('--extra_char_feature', type=str, default='True')
+    argument.add_argument('--extra_word_feature', type=str, default='False')
+    argument.add_argument('--extra_char_feature', type=str, default='False')
     # configuration for pretrained models
     argument.add_argument('--model_name', type=str, default='bert-base-cased')
     argument.add_argument('--bert_size', type=int, default=768)
-    argument.add_argument('--use_tagger', type=str, default='False')
+    argument.add_argument('--use_tagger', type=str, default='True')
     argument.add_argument('--tagger_name', type=str, choices=['LSTM', 'GRU'], default='LSTM')
     argument.add_argument('--tagger_size', type=int, default=600)
     argument.add_argument('--tagger_bidirectional', type=str, default='True')
@@ -161,11 +164,10 @@ def init_args():
 def batch_to_device(batch, device):
     for key, value in batch.items():
         if key != 'label_ids_original':
-           batch[key] = batch[key].to(device=device)
+            batch[key] = batch[key].to(device=device)
 
 
 def pretrained_mode(args):
-
     train_source = os.path.join(args.dataset_dir, args.task_type, args.dataset_name, 'train.txt')
     valid_source = os.path.join(args.dataset_dir, args.task_type, args.dataset_name, 'valid.txt')
     test_source = os.path.join(args.dataset_dir, args.task_type, args.dataset_name, 'test.txt')
@@ -173,6 +175,10 @@ def pretrained_mode(args):
     # train_source = os.path.join(args.dataset_dir, args.task_type, args.dataset_name, 'test.txt')
     # valid_source = os.path.join(args.dataset_dir, args.task_type, args.dataset_name, 'test.txt')
     # test_source = os.path.join(args.dataset_dir, args.task_type, args.dataset_name, 'test.txt')
+    if torch.cuda.is_available() and torch.device != 'cpu':
+        device = torch.device(device=args.device)
+    else:
+        device = torch.device(device='cpu')
 
     reader_ = READER.get(args.task_type, ner_reader)
     train_data = SeqDataset(train_source, read_method=reader_)
@@ -214,12 +220,11 @@ def pretrained_mode(args):
     setattr(config_, 'use_context', eval(args.use_context))
     setattr(config_, 'use_crf', eval(args.use_crf))
     setattr(config_, 'fix_pretrained', eval(args.fix_pretrained))
-    device = torch.device(args.device)
-    model = BertForSeqTask.from_pretrained(args.model_name, config=config_)
+    model = BertForSeqTask(args.model_name, config_)
     model.to(device=device)
-    param_ = [n for n, p in model.named_parameters() if 'context' in n]
+    # param_ = [n for n, p in model.named_parameters() if 'context' in n]
     param_groups = [
-            {'params': [p for n, p in model.named_parameters() if 'tagger' in n], 'lr': args.learning_rate_tagger},
+        {'params': [p for n, p in model.named_parameters() if 'tagger' in n], 'lr': args.learning_rate_tagger},
         {'params': [p for n, p in model.named_parameters() if 'bert' in n], },
         {'params': [p for n, p in model.named_parameters() if 'context' in n], 'lr': args.learning_rate_context},
         {'params': model.classifier.parameters(), 'lr': args.learning_rate_classifier}
@@ -227,7 +232,7 @@ def pretrained_mode(args):
     # optimizer = optim.AdamW(model.parameters(), lr=args.learning_rate, eps=args.adam_eps)
     optimizer = optim.AdamW(param_groups, lr=args.learning_rate, eps=args.adam_eps)
     # optimizer = optim.Adam(param_groups, lr=args.learning_rate, eps=args.adam_eps,
-           # betas=(0.9,0.999))
+    # betas=(0.9,0.999))
     all_step = len(train_loader) * args.num_epoch
     scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=args.warmup_step,
                                                 num_training_steps=all_step)
@@ -239,6 +244,7 @@ def pretrained_mode(args):
                                 optimizer,
                                 args,
                                 metric,
+                                device,
                                 test_loader=test_loader,
                                 warmup_strategy=scheduler,
                                 num_labels=len(idx2label),
@@ -249,7 +255,6 @@ def pretrained_mode(args):
         best_model_path = args.best_model
 
     test(best_model_path, args, test_loader, device, metric(idx2label))
-
 
 
 def collate_fn(tokenizer, batch_data=None):
@@ -292,7 +297,7 @@ def light_mode(args):
     if torch.cuda.is_available() and torch.device != 'cpu':
         device = torch.device(device=args.device)
     else:
-        device = torch.device(device=args.device)
+        device = torch.device(device='cpu')
     if eval(args.use_flair):
         pass
     else:
@@ -302,8 +307,11 @@ def light_mode(args):
         else:
             if not os.path.exists(args.cache_dir):
                 os.makedirs(args.cache_dir)
-            word_vector = read_vector(word_vector_source=args.word_vector, vector_dim=args.word_dim)
-            pickle.dump(word_vector, open(vector_cache, 'wb'))
+            if os.path.exists(args.word_vector):
+                word_vector = read_vector(word_vector_source=args.word_vector, vector_dim=args.word_dim)
+                pickle.dump(word_vector, open(vector_cache, 'wb'))
+            else:
+                word_vector = None
         tokenizer_method = str.split
         tokenizer = NERTokenizer(tokenizer=tokenizer_method)
         reader_ = READER.get(args.task_type, ner_reader)
@@ -313,9 +321,9 @@ def light_mode(args):
         word_alphabet, char_alphabet, label_alphabet \
             = init_alphabet(word_counter, char_counter, label_counter, use_crf=eval(args.use_crf))
         num_labels = len(label_alphabet) if eval(args.use_crf) else len(label_alphabet) - 1
-        print(label_alphabet.token2id)
-        print(label_alphabet.id2token)
-        word_alphabet.add(word_vector)
+        # print(label_alphabet.token2id)
+        if word_vector:
+            word_alphabet.add(word_vector)
         tokenizer.add_alphabet(word_alphabet, label_alphabet, char_alphabet)
         train_dataset = NERDataset(train_path, read_method=reader_)
         eval_dataset = NERDataset(eval_path, read_method=reader_)
@@ -324,32 +332,38 @@ def light_mode(args):
         train_loader = DataLoader(train_dataset, batch_size=args.batch_size, collate_fn=collate_fn_tokenizer)
         eval_loader = DataLoader(eval_dataset, batch_size=args.batch_size, collate_fn=collate_fn_tokenizer)
         test_loader = DataLoader(test_dataset, batch_size=args.batch_size, collate_fn=collate_fn_tokenizer)
-        pretrained_vector = build_matrix(token_alphabet=word_alphabet,
-                                         word_vector=word_vector,
-                                         word_dim=args.word_dim)
-
-        extra_feature = (4 if args.extra_word_feature else 0) + (4 if args.extra_char_feature else 0)
+        if word_vector:
+            pretrained_vector = build_matrix(token_alphabet=word_alphabet,
+                                             word_vector=word_vector,
+                                             word_dim=args.word_dim)
+        else:
+            pretrained_vector = None
+        extra_feature = (4 if eval(args.extra_word_feature) else 0) + (4 if eval(args.extra_char_feature) else 0)
         input_size = args.word_dim + (args.char_dim if eval(args.use_char) else 0) + extra_feature
 
-        model_light = RNNNet(len(word_alphabet),
-                             len(char_alphabet),
-                             input_size,
-                             args.hidden_dim,
-                             args.word_dim,
-                             args.num_layers,
-                             num_labels,
-                             pretrained_vector=pretrained_vector,
-                             use_char=eval(args.use_char),
-                             use_context=eval(args.use_context),
-                             use_crf=eval(args.use_crf),
-                             char_embedding_dim=args.char_embedding_dim,
-                             char_hidden_dim=args.char_dim,
-                             kernel_size=args.char_window_size
-                             )
+        try:
+            model_light = MODEL[args.model_name](len(word_alphabet),
+                                                 len(char_alphabet),
+                                                 input_size,
+                                                 args.hidden_dim,
+                                                 args.word_dim,
+                                                 args.num_layers,
+                                                 num_labels,
+                                                 pretrained_vector=pretrained_vector,
+                                                 use_char=eval(args.use_char),
+                                                 use_context=eval(args.use_context),
+                                                 use_crf=eval(args.use_crf),
+                                                 char_embedding_dim=args.char_embedding_dim,
+                                                 char_hidden_dim=args.char_dim,
+                                                 kernel_size=args.char_window_size
+                                                 )
+        except KeyError:
+            logger.info(f'{args.model_name} does not exist in supported model list')
+            exit(1)
         model_light.to(device=device)
         param_group = [
             {'params': [p for n, p in model_light.named_parameters() if 'context' in n],
-             'lr': 1e-2},
+             'lr': 1e-3},
             {'params': [p for n, p in model_light.named_parameters() if 'context' not in n],
              }
         ]
@@ -365,6 +379,7 @@ def light_mode(args):
                                 optimizer,
                                 args,
                                 metric,
+                                device,
                                 test_loader=test_loader,
                                 num_labels=num_labels,
                                 loss_fn=loss_fn,
@@ -380,6 +395,7 @@ def train(model,
           optimizer,
           args,
           metric,
+          device,
           test_loader=None,
           num_labels=None,
           loss_fn=None,
@@ -403,7 +419,7 @@ def train(model,
         metric_ = metric(idx2label, use_crf=eval(args.use_crf))
 
         for batch in p_bar:
-            batch_to_device(batch, args.device)
+            batch_to_device(batch, device=device)
             if eval(args.use_crf):
                 loss = model.loss(**batch)
                 output, _ = model(**batch)
@@ -427,7 +443,7 @@ def train(model,
             epoch_loss += loss.item()
             p_bar.set_description(
                 f"Epoch: {epoch}: Percentage: {local_step}/{epoch_step} Loss: {round(loss.item(), 2)}")
-        eval_f1, fine_grained_f1 = evaluate(eval_loader, metric_, model, args.device,
+        eval_f1, fine_grained_f1 = evaluate(eval_loader, metric_, model, device,
                                             mode=args.mode, use_crf=eval(args.use_crf))
         if lr_decay_scheduler:
             lr_decay_scheduler.step()

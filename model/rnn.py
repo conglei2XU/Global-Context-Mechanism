@@ -131,7 +131,6 @@ class RNNNet(nn.Module):
         return loss
 
 
-
 class CharCNN(nn.Module):
     """
 

@@ -5,7 +5,7 @@ from utils.constants import PAD, UNK, PAD_LABEL
 
 class TokenAlphabet:
 
-    def __init__(self, threshold=3, default_token=None, counter=None, is_label=False, use_crf=False):
+    def __init__(self, threshold=1, default_token=None, counter=None, is_label=False, use_crf=False):
 
         """
         :param threshold: (int) minimum frequency for word
