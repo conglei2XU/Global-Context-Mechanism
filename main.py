@@ -1,4 +1,5 @@
 # --*-- coding: utf-8 --*--
+# last updated: 2024.04.09
 import os
 
 os.environ['CUBLAS_WORKSPACE_CONFIG'] = ':16:8'
