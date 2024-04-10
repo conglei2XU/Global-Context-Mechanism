@@ -1,15 +1,14 @@
+# --*-- coding: utf-8 --*--
+# last updated: 2024.04.09
+
 import logging
-from abc import ABC
-from typing import Union, Tuple
 
 import torch
 import torch.nn as nn
 from torch.nn import MultiheadAttention
 from transformers import AutoModel, BertModel
-from transformers.models.bert import BertPreTrainedModel
-from transformers.models.albert import AlbertPreTrainedModel
 
-from model.context_mechanism import GlobalContext, GlobalContextOld, SAN
+from model.context_mechanism import GlobalContext, SAN
 
 TAGGER = {
     'LSTM': nn.LSTM,
