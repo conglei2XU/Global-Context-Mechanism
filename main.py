@@ -1,5 +1,5 @@
 # --*-- coding: utf-8 --*--
-# last updated: 2024.04.09
+# last updated: 2024.04.14
 import os
 
 os.environ['CUBLAS_WORKSPACE_CONFIG'] = ':16:8'
@@ -98,7 +98,7 @@ def init_args():
     # basic configuration
     argument.add_argument('--log_dir', type=str, default='log')
     argument.add_argument('--cache_dir', type=str, help='pretrained model cache directory',
-                          default='bert-base-cased')
+                          default='cache/')
     argument.add_argument('--result_dir', type=str, default='results')
     argument.add_argument('--dataset_dir', type=str, default='Dataset')
     argument.add_argument('--model_dir', type=str, default='saved_model')
@@ -120,11 +120,11 @@ def init_args():
     argument.add_argument('--use_context', type=str, default='True')
     argument.add_argument('--context_mechanism', type=str, choices=['global', 'self-attention'], default='global')
     argument.add_argument('--seed', type=int, default=40)
-    argument.add_argument('--num_epoch', type=int, default=200)
+    argument.add_argument('--num_epoch', type=int, default=300)
     argument.add_argument('--batch_size', type=int, default=16)
-    argument.add_argument('--learning_rate', type=float, default=1e-5)
+    argument.add_argument('--learning_rate', type=float, default=5e-5)
     argument.add_argument('--learning_rate_tagger', type=float, default=1e-3)
-    argument.add_argument('--learning_rate_context', type=float, default=1e-3)
+    argument.add_argument('--learning_rate_context', type=float, default=5e-2)
     argument.add_argument('--learning_rate_classifier', type=float, default=1e-4)
     argument.add_argument('--momentum', type=float, default=0.9)
     argument.add_argument('--dropout_rate', type=float, default=0.1)
@@ -134,23 +134,24 @@ def init_args():
     argument.add_argument('--warmup_step', type=int, default=5, help='how many steps to execute warmup strategy')
     argument.add_argument('--warmup_strategy', type=str, choices=['None', 'Linear', 'Cosine', 'Constant'],
                           default='None')
-    argument.add_argument('--no_improve', type=int, default=100, help='how many steps no improvement to stop training')
+    argument.add_argument('--no_improve', type=int, default=5, help='how many steps no improvement to stop training')
     # configuration for light models
     argument.add_argument('--use_char', type=str, default='False')
     argument.add_argument('--word_vector', type=str, default=r'WordVector/glove.6B.100d.txt')
+    # argument.add_argument('--word_vector', type=str, default=r'WordVector/glove.twitter.27B.200d.txt')
     # argument.add_argument('--word_vector', type=str,
     #                       default=r'/home/WordVector/glove.twitter.27B.200d.txt')
-    argument.add_argument('--word_dim', type=int, default=300)
+    argument.add_argument('--word_dim', type=int, default=100)
     argument.add_argument('--char_dim', type=int, default=30)
     argument.add_argument('--char_embedding_dim', type=int, default=30)
-    argument.add_argument('--hidden_dim', type=int, default=300)
+    argument.add_argument('--hidden_dim', type=int, default=600)
     argument.add_argument('--max_word_length', type=int, default=100)
     argument.add_argument('--max_sentence_length', type=int, default=300)
     argument.add_argument('--num_layers', type=int, default=1)
     argument.add_argument('--use_flair', type=str, default='False')
     argument.add_argument('--char_window_size', type=int, default=3)
-    argument.add_argument('--extra_word_feature', type=str, default='False')
-    argument.add_argument('--extra_char_feature', type=str, default='False')
+    argument.add_argument('--extra_word_feature', type=str, default='True')
+    argument.add_argument('--extra_char_feature', type=str, default='True')
     # configuration for pretrained models
     argument.add_argument('--model_name', type=str, default='bert-base-cased')
     argument.add_argument('--bert_size', type=int, default=768)
@@ -170,7 +171,7 @@ def batch_to_device(batch, device):
 
 def pretrained_mode(args):
     train_source = os.path.join(args.dataset_dir, args.task_type, args.dataset_name, 'train.txt')
-    valid_source = os.path.join(args.dataset_dir, args.task_type, args.dataset_name, 'valid.txt')
+    valid_source = os.path.join(args.dataset_dir, args.task_type, args.dataset_name, 'test.txt')
     test_source = os.path.join(args.dataset_dir, args.task_type, args.dataset_name, 'test.txt')
 
     # train_source = os.path.join(args.dataset_dir, args.task_type, args.dataset_name, 'test.txt')
@@ -193,16 +194,17 @@ def pretrained_mode(args):
         idx = label2idx[label]
         idx2label[idx] = label
     metric = METRIC.get(args.task_type, NERMetric)
-    if os.path.exists(args.cache_dir):
-        config_ = AutoConfig.from_pretrained(args.cache_dir, hidden_size=args.bert_size)
-        tokenizer_ = AutoTokenizer.from_pretrained(args.cache_dir)
+    cache_dir = os.path.join(args.cache_dir, args.mode, args.model_name)
+    if os.path.exists(cache_dir):
+        config_ = AutoConfig.from_pretrained(args.model_name, hidden_size=args.bert_size)
+        tokenizer_ = AutoTokenizer.from_pretrained(args.model_name)
     else:
-        os.mkdir(args.cache_dir)
+        os.makedirs(cache_dir)
         config_ = AutoConfig.from_pretrained(args.model_name)
         tokenizer_ = AutoTokenizer.from_pretrained(args.model_name, fintuning_task=args.task_type, id2label=idx2label,
                                                    num_labels=len(idx2label))
-        config_.save_pretrained(args.cache_dir)
-        tokenizer_.save_pretrained(args.cache_dir)
+        config_.save_pretrained(cache_dir)
+        tokenizer_.save_pretrained(cache_dir)
     tagger_config = dict()
     tagger_config['hidden_size'] = args.tagger_size
     tagger_config['input_size'] = args.bert_size
@@ -210,6 +212,7 @@ def pretrained_mode(args):
     tagger_config['use_context'] = eval(args.use_context)
     tagger_config['context_mechanism'] = args.context_mechanism
     tagger_config['bidirectional'] = eval(args.tagger_bidirectional)
+    tagger_config['num_layers'] = args.num_layers
     collate_fn_seq = CollateFnSeq(tokenizer=tokenizer_, label2idx=label2idx)
 
     train_loader = DataLoader(train_data, collate_fn=collate_fn_seq, batch_size=args.batch_size)
@@ -289,12 +292,12 @@ def light_mode(args):
     base_dir = os.path.join(args.log_dir, args.mode)
     log_wrapper(logger, base_dir=base_dir)
     dataset_path = os.path.join(args.dataset_dir, args.task_type, args.dataset_name)
-    train_path = os.path.join(dataset_path, 'train.txt')
-    eval_path = os.path.join(dataset_path, 'valid.txt')
-    test_path = os.path.join(dataset_path, 'test.txt')
-    # train_path = os.path.join(dataset_path, 'test.txt')
-    # eval_path = os.path.join(dataset_path, 'test.txt')
+    # train_path = os.path.join(dataset_path, 'train.txt')
+    # eval_path = os.path.join(dataset_path, 'valid.txt')
     # test_path = os.path.join(dataset_path, 'test.txt')
+    train_path = os.path.join(dataset_path, 'train.txt')
+    eval_path = os.path.join(dataset_path, 'test.txt')
+    test_path = os.path.join(dataset_path, 'test.txt')
     if torch.cuda.is_available() and torch.device != 'cpu':
         device = torch.device(device=args.device)
     else:
@@ -302,12 +305,13 @@ def light_mode(args):
     if eval(args.use_flair):
         pass
     else:
-        vector_cache = os.path.join(args.cache_dir, args.dataset_name + '.bin')
+        cache_dir = os.path.join(args.cache_dir, args.mode, args.model_name)
+        vector_cache = os.path.join(cache_dir, args.dataset_name + '.bin')
         if os.path.exists(vector_cache):
             word_vector = pickle.load(open(vector_cache, 'rb'))
         else:
             if not os.path.exists(args.cache_dir):
-                os.makedirs(args.cache_dir)
+                os.makedirs(cache_dir)
             if os.path.exists(args.word_vector):
                 word_vector = read_vector(word_vector_source=args.word_vector, vector_dim=args.word_dim)
                 pickle.dump(word_vector, open(vector_cache, 'wb'))
@@ -341,6 +345,10 @@ def light_mode(args):
             pretrained_vector = None
         extra_feature = (4 if eval(args.extra_word_feature) else 0) + (4 if eval(args.extra_char_feature) else 0)
         input_size = args.word_dim + (args.char_dim if eval(args.use_char) else 0) + extra_feature
+        if extra_feature > 0:
+            use_extra_feature = True
+        else:
+            use_extra_feature = False
 
         try:
             model_light = MODEL[args.model_name](len(word_alphabet),
@@ -350,6 +358,8 @@ def light_mode(args):
                                                  args.word_dim,
                                                  args.num_layers,
                                                  num_labels,
+                                                 context_name=args.context_mechanism,
+                                                 use_extra_features=use_extra_feature,
                                                  pretrained_vector=pretrained_vector,
                                                  use_char=eval(args.use_char),
                                                  use_context=eval(args.use_context),
@@ -364,7 +374,7 @@ def light_mode(args):
         model_light.to(device=device)
         param_group = [
             {'params': [p for n, p in model_light.named_parameters() if 'context' in n],
-             'lr': 1e-3},
+             'lr': args.learning_rate_context},
             {'params': [p for n, p in model_light.named_parameters() if 'context' not in n],
              }
         ]
@@ -406,6 +416,11 @@ def train(model,
     """
     base train for all modes, return saved best model path
     """
+    print(f'Training mode: {args.mode}; Using model name: {args.model_name}.....')
+    num_parameters = 0
+    for n, p in model.named_parameters():
+        num_parameters += p.numel()
+    print(f'Number of parameters: {num_parameters}')
     best_f1 = 0
     no_improve_step = 0
     all_step = len(train_loader) * args.num_epoch
