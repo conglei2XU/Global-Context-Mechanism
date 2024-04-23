@@ -18,7 +18,7 @@ class SLSTMCell(nn.Module):
                  word_vector_size,
                  num_layers,
                  num_labels,
-                 label2idx=None, pretrained_vector=None, use_char=False, **kwargs):
+                 label2idx=None, pretrained_vector=None, use_char=False, use_extra_feature=False, **kwargs):
         super(SLSTMCell, self).__init__()
         self.layers = num_layers
         self.hidden_size = hidden_size

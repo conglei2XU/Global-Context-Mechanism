@@ -1,14 +1,17 @@
-# --*-- coding: utf-8 --*--
-# last updated: 2024.04.09
-
 import logging
+from abc import ABC
+from typing import Union, Tuple
 
 import torch
 import torch.nn as nn
 from torch.nn import MultiheadAttention
 from transformers import AutoModel, BertModel
+from transformers.models.bert import BertPreTrainedModel
+from transformers.models.albert import AlbertPreTrainedModel
+from torch.nn.utils.rnn import pad_packed_sequence, pack_padded_sequence
 
-from model.context_mechanism import GlobalContext, SAN
+from model.context_mechanism import GlobalContext, GlobalContextOld, SAN
+
 
 TAGGER = {
     'LSTM': nn.LSTM,
@@ -110,6 +113,7 @@ class BertForSeqTask(nn.Module):
                 self.num_heads = 5
                 self.context_mechanism = CONTEXT[tagger_config['context_mechanism']](input_dim, self.num_heads)
                 # self.classifier = nn.Linear(input_dim * 2, self.num_labels)
+        self.num_layers = 1
 
         if self.use_crf:
             pass
@@ -138,19 +142,33 @@ class BertForSeqTask(nn.Module):
                             return_dict=return_dict)
         sequence_output = outputs[0]
         gate_weight = None
+        batch_size = input_ids.size(0)
+        seq_lengths = torch.sum(labels != -100, dim=1)
         if self.use_tagger:
-            sequence_output, _ = self.tagger(sequence_output)
-            forward_global = sequence_output[:, -1, :]
+
+            # rnn_input = pack_padded_sequence(sequence_output, lengths=seq_lengths.cpu(), enforce_sorted=False, batch_first=True)
+            sequence_output, (h_n, c_n) = self.tagger(sequence_output)
+            # sequence_output, _ = pad_packed_sequence(rnn_out, batch_first=True)
+
+            # print(seq_lengths.size())
+            # forward_global = torch.index_select(sequence_output, 1, seq_lengths)
+            forward_global = sequence_output[torch.arange(batch_size), seq_lengths - 1]
+            # forward_global = sequence_output[:, seq_lengths, :]
+            # print(forward_global.size())
+            # forward_global = sequence_output[:, -1, :]
             backward_global = sequence_output[:, 0, :]
+            # print(backward_global.size())
+            # forward_global = h_n[0, :, :]
             # forward_global, backward_global = forward_output[:, -1, :], backward_output[:, 0, :]
         else:
-            forward_global, backward_global = sequence_output[:, 0, :], sequence_output[:, -1, :]
+            backward_global = sequence_output[:, 0, :]
+            forward_global = sequence_output[torch.arange(batch_size), seq_lengths-1]
         if self.use_context:
             if self.context_name == 'global':
                 sequence_output, gate_weight = self.context_mechanism(sequence_output, forward_global, backward_global)
             if self.context_name == 'self-attention':
                 # sequence_output = torch.cat([sequence_output] * self.num_heads, dim=2)
-                sequence_output, gate_weight = self.context_mechanism(sequence_output)
+                sequence_output, gate_weight = self.context_mechanism(sequence_output, src_mask=attention_mask)
 
         if self.use_crf:
             pass
@@ -158,6 +176,7 @@ class BertForSeqTask(nn.Module):
         loss = None
         if labels is not None:
             loss_fn = nn.CrossEntropyLoss()
+            # logits, _ = torch.max(logits, dim=-1)
             loss = loss_fn(logits.view(-1, self.num_labels), labels.view(-1))
         if not return_dict:
             output = (logits,) + outputs[2:]
