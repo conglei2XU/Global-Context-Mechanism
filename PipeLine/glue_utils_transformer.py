@@ -3,6 +3,7 @@
 hugging face bert utils to work with glue tasks
 """
 import os
+import pdb
 from typing import Optional
 
 import torch
@@ -178,7 +179,10 @@ class CollateFnSeq:
                     if word_idx is None:
                         label_id.append(-100)
                     elif word_idx != pre_word:
-                        label_id.append(self.label2idx[label[word_idx]])
+                        cur_id = self.label2idx.get(label[word_idx], None)
+                        if cur_id is None:
+                            pdb.set_trace()
+                        label_id.append(cur_id)
                         pre_word = word_idx
                     else:
                         label_id.append(-100)

@@ -67,6 +67,7 @@ class RNNNet(nn.Module):
         self.use_crf = use_crf
         self.classify_layer = nn.Linear(hidden_size, num_labels)
         self.dropout = nn.Dropout(p=0.1)
+        self.hidden_size = hidden_size
 
     def _build_features(self,
                 sentence_ids=None,
@@ -118,12 +119,12 @@ class RNNNet(nn.Module):
         if self.use_context:
             if self.context_name == 'global':
 
-                forward_global = rnn_out[:, -1, :]
+                # forward_global = rnn_out[:, -1, :]
                 batch_size = sentence_ids.size(0)
-                backward_global = rnn_out[:, 0, :]
+                # backward_global = rnn_out[:, 0, :]
                 # forward_global = rnn_out[torch.arange(batch_size), sentence_length - 1]
-                # forward_global = h_n[0]
-                # backward_global = h_n[1]
+                forward_global = h_n[0]
+                backward_global = h_n[1]
                 rnn_out, gate_weight = self.context_mechanism(rnn_out, forward_global, backward_global)
                 # rnn_out, gate_weight = self.context_mechanism(rnn_out, backward_global, forward_global)
             elif self.context_name == 'self-attention':
@@ -147,14 +148,14 @@ class RNNNet(nn.Module):
              label_ids_original=None):
 
 
-        rnn_out, masks_ = self._build_features(sentence_ids=sentence_ids,
+        rnn_out, masks_, (h_n, c_n) = self._build_features(sentence_ids=sentence_ids,
                                        extra_word_feature=extra_word_feature,
                                        sentence_length=sentence_length,
                                        char_ids=char_ids,
                                        extra_char_feature=extra_char_feature)
         if self.use_context:
-            forward_global = rnn_out[:, -1, :]
-            backward_global = rnn_out[:, 0, :]
+            forward_global = h_n[0, :, :]
+            backward_global = rnn_out[:, 0, int(self.hidden_size//2):]
             rnn_out, gate_weight = self.context_mechanism(rnn_out, forward_global, backward_global)
         loss = self.crf.loss(rnn_out, label_ids, masks_)
         return loss

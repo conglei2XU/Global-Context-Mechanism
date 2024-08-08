@@ -1,9 +1,3 @@
-"""
-Implementation of S-LSTM in torch 2024.04.10 : Sentence-State LSTM for Text Representation https://arxiv.org/abs/1805.02474
-
-Origin source code in Tensorflow: https://github.com/leuchine/S-LSTM/
-"""
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -18,7 +12,7 @@ class SLSTMCell(nn.Module):
                  word_vector_size,
                  num_layers,
                  num_labels,
-                 label2idx=None, pretrained_vector=None, use_char=False, use_extra_feature=False, **kwargs):
+                 label2idx=None, pretrained_vector=None, use_char=False, **kwargs):
         super(SLSTMCell, self).__init__()
         self.layers = num_layers
         self.hidden_size = hidden_size
