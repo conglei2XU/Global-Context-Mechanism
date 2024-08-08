@@ -4,14 +4,14 @@ from typing import Union, Tuple
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.nn import MultiheadAttention
-from transformers import AutoModel, BertModel
+from transformers import AutoModel, BertModel, RobertaModel, XLNetModel
 from transformers.models.bert import BertPreTrainedModel
 from transformers.models.albert import AlbertPreTrainedModel
 from torch.nn.utils.rnn import pad_packed_sequence, pack_padded_sequence
 
-from model.context_mechanism import GlobalContext, GlobalContextOld, SAN
-
+from model.context_mechanism import GlobalContext, SAN
 
 TAGGER = {
     'LSTM': nn.LSTM,
@@ -22,6 +22,9 @@ CONTEXT = {
     'self-attention': SAN,
     'cross-ner': '',
 }
+TRANSFORMERS = {'bert-base-cased': AutoModel,
+                'roberta-base': RobertaModel,
+                'xlnet-cased': XLNetModel}
 
 logger = logging.getLogger('__main__')
 
@@ -30,7 +33,10 @@ class TransformerModel(nn.Module):
     def __init__(self, config, tagger_layer=None, tagger_hidden_size=None, context_layer=None,
                  use_crf=False, fix_pretrained_model=False, pretrained_model_name=None):
         super(TransformerModel, self).__init__()
-        self.pretrained_model = AutoModel.from_pretrained(pretrained_model_name, config)
+        try:
+            self.pretrained_model = TRANSFORMERS[pretrained_model_name].from_pretrained(pretrained_model_name, config)
+        except KeyError:
+            print(f'{pretrained_model_name} is not supported in {TRANSFORMERS.keys()}')
         self.input_size = config.hidden_size
         self.hidden_size = tagger_hidden_size
         self.num_labels = config.num_lables
@@ -85,9 +91,11 @@ class BertForSeqTask(nn.Module):
         self.use_context = bert_config.use_context
         self.use_crf = bert_config.use_crf
         self.num_labels = bert_config.num_labels
-        self.drop_out = bert_config.hidden_dropout_prob
+        # self.drop_out = bert_config.hidden_dropout_prob
+        self.num_layers = tagger_config['num_layers']
         # if bert_config.fix_bert:
         self.tagger_size = tagger_config['hidden_size']
+        self.bert_config = bert_config
         if bert_config.fix_pretrained:
             for parameters in self.bert.parameters():
                 parameters.requires_grad = False
@@ -100,23 +108,29 @@ class BertForSeqTask(nn.Module):
             self.tagger = TAGGER[tagger_config['tagger_name']](tagger_config['input_size'],
                                                                hidden_size=int(hidden_dim),
                                                                bidirectional=True,
-                                                               batch_first=True)
+                                                               batch_first=True,
+                                                               num_layers=self.num_layers)
+            # self.extra_linear = nn.Linear(tagger_config['hidden_size'], 2*tagger_config['hidden_size'])
+            # self.full_linear = nn.Linear(2 * tagger_config['hidden_size'], tagger_config['hidden_size'])
             self.classifier = nn.Linear(tagger_config['hidden_size'], self.num_labels)
         else:
             self.classifier = nn.Linear(bert_config.hidden_size, bert_config.num_labels)
         if self.use_context:
             self.context_name = tagger_config['context_mechanism']
+
             input_dim = tagger_config['hidden_size'] if bert_config.use_tagger else bert_config.hidden_size
             if tagger_config['context_mechanism'] == 'global':
                 self.context_mechanism = CONTEXT[tagger_config['context_mechanism']](input_dim)
             if tagger_config['context_mechanism'] == 'self-attention':
-                self.num_heads = 5
+                self.num_heads = 6
                 self.context_mechanism = CONTEXT[tagger_config['context_mechanism']](input_dim, self.num_heads)
                 # self.classifier = nn.Linear(input_dim * 2, self.num_labels)
         self.num_layers = 1
+        self.dropout = nn.Dropout()
 
         if self.use_crf:
             pass
+        self.drop_out = nn.Dropout(0.1)
         # input_size = bert_config.hidden_size
         # self.classifier = nn.Linear(input_size, self.num_labels)
 
@@ -135,7 +149,7 @@ class BertForSeqTask(nn.Module):
                             attention_mask=attention_mask,
                             token_type_ids=token_type_ids,
                             position_ids=position_ids,
-                            head_mask=head_mask,
+                            # head_mask=head_mask,
                             inputs_embeds=inputs_embeds,
                             output_attentions=output_attentions,
                             output_hidden_states=output_hidden_states,
@@ -147,37 +161,47 @@ class BertForSeqTask(nn.Module):
         if self.use_tagger:
 
             # rnn_input = pack_padded_sequence(sequence_output, lengths=seq_lengths.cpu(), enforce_sorted=False, batch_first=True)
+            # sequence_output = self.dropout(sequence_output)
             sequence_output, (h_n, c_n) = self.tagger(sequence_output)
+            # sequence_output = self.drop_out(sequence_output)
             # sequence_output, _ = pad_packed_sequence(rnn_out, batch_first=True)
 
             # print(seq_lengths.size())
             # forward_global = torch.index_select(sequence_output, 1, seq_lengths)
-            forward_global = sequence_output[torch.arange(batch_size), seq_lengths - 1]
+            # forward_global = sequence_output[torch.arange(batch_size), seq_lengths - 1]
             # forward_global = sequence_output[:, seq_lengths, :]
             # print(forward_global.size())
             # forward_global = sequence_output[:, -1, :]
-            backward_global = sequence_output[:, 0, :]
+            backward_global = sequence_output[:, 0, self.tagger_size // 2:]
             # print(backward_global.size())
-            # forward_global = h_n[0, :, :]
+            forward_global = h_n[0, :, :]
             # forward_global, backward_global = forward_output[:, -1, :], backward_output[:, 0, :]
+            # intermidate_step = F.relu(self.extra_linear(sequence_output))
+            # sequence_output = self.full_linear(intermidate_step)
         else:
-            backward_global = sequence_output[:, 0, :]
-            forward_global = sequence_output[torch.arange(batch_size), seq_lengths-1]
+            backward_global = sequence_output[:, 0, self.bert_config.hidden_size // 2:]
+            forward_global = sequence_output[torch.arange(batch_size), seq_lengths - 1,
+                             :self.bert_config.hidden_size // 2]
+
         if self.use_context:
             if self.context_name == 'global':
                 sequence_output, gate_weight = self.context_mechanism(sequence_output, forward_global, backward_global)
+                # sequence_output, gate_weight = self.context_mechanism(sequence_output, backward_global, forward_global)
             if self.context_name == 'self-attention':
                 # sequence_output = torch.cat([sequence_output] * self.num_heads, dim=2)
                 sequence_output, gate_weight = self.context_mechanism(sequence_output, src_mask=attention_mask)
 
         if self.use_crf:
             pass
+        # add extra linear parameters
+
         logits = self.classifier(sequence_output)
         loss = None
         if labels is not None:
-            loss_fn = nn.CrossEntropyLoss()
+            loss_fn = nn.CrossEntropyLoss(ignore_index=-100)
             # logits, _ = torch.max(logits, dim=-1)
             loss = loss_fn(logits.view(-1, self.num_labels), labels.view(-1))
         if not return_dict:
             output = (logits,) + outputs[2:]
-            return ((loss,) + output), gate_weight if loss is not None else output
+        return ((loss,) + output), gate_weight
+

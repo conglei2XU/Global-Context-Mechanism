@@ -4,7 +4,7 @@ import torch.nn.functional as F
 
 
 class GlobalContext(nn.Module):
-    def __init__(self, hidden_size, dropout_rate=0.1):
+    def __init__(self, hidden_size, dropout_rate=0.3):
         super(GlobalContext, self).__init__()
         self.input_size = hidden_size
         self.dropout_rate = dropout_rate
@@ -14,13 +14,14 @@ class GlobalContext(nn.Module):
     def forward(self, x, forward_global_cell, backward_global_cell):
         max_len = x.size(1)
 
-        forward_info = forward_global_cell[:, :self.input_size//2].unsqueeze(1).repeat(1, max_len, 1)
-        backward_info = backward_global_cell[:, self.input_size//2:].unsqueeze(1).repeat(1, max_len, 1)
-
+        # forward_info = forward_global_cell[:, :self.input_size//2].unsqueeze(1).repeat(1, max_len, 1)
+        # backward_info = backward_global_cell[:, self.input_size//2:].unsqueeze(1).repeat(1, max_len, 1)
+        forward_info = forward_global_cell.unsqueeze(1).repeat(1, max_len, 1)
+        backward_info = backward_global_cell.unsqueeze(1).repeat(1, max_len, 1)
         # global_info = torch.cat([forward_info, backward_info], dim=-1)
         global_info = torch.cat([backward_info, forward_info], dim=-1)
         # i_g, i_c = self.gate(global_info)
-
+#
         i_g, i_c = self.gate(torch.cat([global_info, x], dim=-1))
         global_info = self.dropout(global_info)
         output = global_info * i_g + x * i_c
@@ -89,7 +90,8 @@ class GlobalContextOld(nn.Module):
         forward_global_info = torch.mul(forward_info, forward_weight)
         current_info = torch.mul(x, current_weight)
         backward_global_info = torch.mul(backward_info, backward_weight)
-        global_info_ = torch.cat([forward_global_info, backward_global_info], dim=-1)
+        # global_info_ = torch.cat([forward_global_info, backward_global_info], dim=-1)
+        global_info_ = torch.cat([backward_global_info, forward_global_info], dim=-1)
         # output = current_info + global_info_
         # output = current_info + torch.cat([forward_info, backward_info], dim=-1)
         output = global_info_ + current_info
@@ -123,12 +125,14 @@ class SAN(nn.Module):
 
     def forward(self, src, src_mask=None, src_key_padding_mask=None):
         """
-        :param src:
-        :param src_mask:
+        :param src: (batch_size, seq_length, hidden_size)
+        :param src_mask: (batch_size, seq_length)
         :param src_key_padding_mask:
         :return:
         """
-        src2, _ = self.self_attn(src, src, src, attn_mask=src_mask, key_padding_mask=src_key_padding_mask)
+        src_mask = src_mask.to(torch.bool)
+        # attn_mask = src_mask.repeat(self.nhead, 1, 1,)
+        src2, _ = self.self_attn(src, src, src)
         # print(src2.size())
         # print(src.size())
         # src = src + self.dropout(src2)
