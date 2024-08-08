@@ -1,5 +1,5 @@
 # --*-- coding: utf-8 --*--
-# last updated: 2024.04.14
+# last updated: 2024.08.08
 import os
 
 os.environ['CUBLAS_WORKSPACE_CONFIG'] = ':16:8'
@@ -16,7 +16,16 @@ import torch.optim as optim
 from torch.optim.lr_scheduler import StepLR
 import numpy as np
 from torch.utils.data import DataLoader, TensorDataset
-from transformers import AutoTokenizer, AutoModel, AutoConfig
+from transformers import (
+    AutoConfig,
+    XLNetConfig,
+    RobertaTokenizerFast,
+    BertTokenizerFast,
+    XLNetTokenizerFast,
+    AutoTokenizer,
+    BertweetTokenizer,
+    DebertaTokenizerFast,
+)
 from transformers import get_linear_schedule_with_warmup
 
 from utils.metrics import NERMetric, POSMetric
@@ -48,7 +57,14 @@ METRIC = {
 }
 
 MODEL = {'lstm': RNNNet,
-         's-lstm': SLSTMCell}
+         's-lstm': SLSTMCell,
+         }
+
+TOKENIZERS = {'bert-base-cased': BertTokenizerFast,
+              'roberta-base': RobertaTokenizerFast,
+              'berttweet-base': BertweetTokenizer,
+              'xlnet-cased': XLNetTokenizerFast,
+              'DeBERT': DebertaTokenizerFast}
 
 
 def build_counter(dataset_path, reader_method=None, use_char=False,
@@ -120,11 +136,11 @@ def init_args():
     argument.add_argument('--use_context', type=str, default='True')
     argument.add_argument('--context_mechanism', type=str, choices=['global', 'self-attention'], default='global')
     argument.add_argument('--seed', type=int, default=40)
-    argument.add_argument('--num_epoch', type=int, default=300)
+    argument.add_argument('--num_epoch', type=int, default=20)
     argument.add_argument('--batch_size', type=int, default=16)
     argument.add_argument('--learning_rate', type=float, default=5e-5)
     argument.add_argument('--learning_rate_tagger', type=float, default=1e-3)
-    argument.add_argument('--learning_rate_context', type=float, default=5e-2)
+    argument.add_argument('--learning_rate_context', type=float, default=1e-3)
     argument.add_argument('--learning_rate_classifier', type=float, default=1e-4)
     argument.add_argument('--momentum', type=float, default=0.9)
     argument.add_argument('--dropout_rate', type=float, default=0.1)
@@ -134,14 +150,14 @@ def init_args():
     argument.add_argument('--warmup_step', type=int, default=5, help='how many steps to execute warmup strategy')
     argument.add_argument('--warmup_strategy', type=str, choices=['None', 'Linear', 'Cosine', 'Constant'],
                           default='None')
-    argument.add_argument('--no_improve', type=int, default=5, help='how many steps no improvement to stop training')
+    argument.add_argument('--no_improve', type=int, default=10, help='how many steps no improvement to stop training')
     # configuration for light models
     argument.add_argument('--use_char', type=str, default='False')
-    argument.add_argument('--word_vector', type=str, default=r'WordVector/glove.6B.100d.txt')
+    argument.add_argument('--word_vector', type=str, default=r'WordVector/glove.6B.300d.txt')
     # argument.add_argument('--word_vector', type=str, default=r'WordVector/glove.twitter.27B.200d.txt')
     # argument.add_argument('--word_vector', type=str,
     #                       default=r'/home/WordVector/glove.twitter.27B.200d.txt')
-    argument.add_argument('--word_dim', type=int, default=100)
+    argument.add_argument('--word_dim', type=int, default=300)
     argument.add_argument('--char_dim', type=int, default=30)
     argument.add_argument('--char_embedding_dim', type=int, default=30)
     argument.add_argument('--hidden_dim', type=int, default=600)
@@ -171,7 +187,7 @@ def batch_to_device(batch, device):
 
 def pretrained_mode(args):
     train_source = os.path.join(args.dataset_dir, args.task_type, args.dataset_name, 'train.txt')
-    valid_source = os.path.join(args.dataset_dir, args.task_type, args.dataset_name, 'test.txt')
+    valid_source = os.path.join(args.dataset_dir, args.task_type, args.dataset_name, 'valid.txt')
     test_source = os.path.join(args.dataset_dir, args.task_type, args.dataset_name, 'test.txt')
 
     # train_source = os.path.join(args.dataset_dir, args.task_type, args.dataset_name, 'test.txt')
@@ -195,16 +211,20 @@ def pretrained_mode(args):
         idx2label[idx] = label
     metric = METRIC.get(args.task_type, NERMetric)
     cache_dir = os.path.join(args.cache_dir, args.mode, args.model_name)
-    if os.path.exists(cache_dir):
+    try:
         config_ = AutoConfig.from_pretrained(args.model_name, hidden_size=args.bert_size)
-        tokenizer_ = AutoTokenizer.from_pretrained(args.model_name)
-    else:
-        os.makedirs(cache_dir)
-        config_ = AutoConfig.from_pretrained(args.model_name)
-        tokenizer_ = AutoTokenizer.from_pretrained(args.model_name, fintuning_task=args.task_type, id2label=idx2label,
-                                                   num_labels=len(idx2label))
-        config_.save_pretrained(cache_dir)
-        tokenizer_.save_pretrained(cache_dir)
+        tokenizer_ = TOKENIZERS[args.model_name].from_pretrained(args.model_name, add_prefix_space=True,
+                                                                 num_labels=len(idx2label), id2label=idx2label)
+    except KeyError:
+        tokenizer_ = AutoTokenizer.from_pretrained(args.model_name, fintuning_task=args.task_type,
+                                                   id2label=idx2label, num_labels=len(idx2label))
+    # if os.path.exists(cache_dir):
+    #     config_ = AutoConfig.from_pretrained(args.model_name, hidden_size=args.bert_size)
+    #     tokenizer_ = TOKENIZERS[args.model_name].from_pretrained(args.model_name, add_prefix_space=True)
+    # else:
+    #     os.makedirs(cache_dir)
+    #     config_ = AutoConfig.from_pretrained(args.model_name)
+    #     tokenizer_ = TOKENIZERS[args.model_name].from_pretrained(args.model_name, fintuning_task=args.task_type, id2label=idx2label,  num_labels=len(idx2label))
     tagger_config = dict()
     tagger_config['hidden_size'] = args.tagger_size
     tagger_config['input_size'] = args.bert_size
@@ -296,7 +316,7 @@ def light_mode(args):
     # eval_path = os.path.join(dataset_path, 'valid.txt')
     # test_path = os.path.join(dataset_path, 'test.txt')
     train_path = os.path.join(dataset_path, 'train.txt')
-    eval_path = os.path.join(dataset_path, 'test.txt')
+    eval_path = os.path.join(dataset_path, 'valid.txt')
     test_path = os.path.join(dataset_path, 'test.txt')
     if torch.cuda.is_available() and torch.device != 'cpu':
         device = torch.device(device=args.device)
@@ -579,6 +599,7 @@ def feed_seed(seed):
     np.random.seed(seed)
     random.seed(seed)
     torch.backends.cudnn.benchmark = False
+    torch.use_deterministic_algorithms(True)
 
 
 if __name__ == "__main__":
