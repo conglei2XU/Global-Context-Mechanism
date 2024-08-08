@@ -153,11 +153,11 @@ def init_args():
     argument.add_argument('--no_improve', type=int, default=10, help='how many steps no improvement to stop training')
     # configuration for light models
     argument.add_argument('--use_char', type=str, default='False')
-    argument.add_argument('--word_vector', type=str, default=r'WordVector/glove.6B.300d.txt')
+    argument.add_argument('--word_vector', type=str, default=r'WordVector/glove.6B.100d.txt')
     # argument.add_argument('--word_vector', type=str, default=r'WordVector/glove.twitter.27B.200d.txt')
     # argument.add_argument('--word_vector', type=str,
     #                       default=r'/home/WordVector/glove.twitter.27B.200d.txt')
-    argument.add_argument('--word_dim', type=int, default=300)
+    argument.add_argument('--word_dim', type=int, default=100)
     argument.add_argument('--char_dim', type=int, default=30)
     argument.add_argument('--char_embedding_dim', type=int, default=30)
     argument.add_argument('--hidden_dim', type=int, default=600)
@@ -330,7 +330,7 @@ def light_mode(args):
         if os.path.exists(vector_cache):
             word_vector = pickle.load(open(vector_cache, 'rb'))
         else:
-            if not os.path.exists(args.cache_dir):
+            if not os.path.exists(cache_dir):
                 os.makedirs(cache_dir)
             if os.path.exists(args.word_vector):
                 word_vector = read_vector(word_vector_source=args.word_vector, vector_dim=args.word_dim)
