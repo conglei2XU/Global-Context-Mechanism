@@ -18,15 +18,17 @@ In our reserach, we evaluated the effectiveness of the global context mechanism 
 # Experiments
 
 Our experiments verify the global context mechanism on various pre-trained transformers. For English dataset, we used models including DeBERTa, RoBERTa, BERT, while for Chinese dataset, we applied MacBERT-Chinese and BERT-Chinese  respectively. In there,  we  detailed the F1 improvement and training hyper-parameters for BERT. Additionally, we utilized BertTwitter and BERT-Chinese for the Wnut2017 and Weibo datasets, respectively. 
+<div style="text-align: center;">
 
 |     **Module**      | **Rest14** | **Rest15** | **Rest16** | **Laoptop14** | **Conll2003** | **Wnut2017** | **Weibo** |
 | :-----------------: | :--------: | :--------: | :--------: | :-----------: | :-----------: | :----------: | :-------: |
 |        BERT         |   71.86    |   60.06    |    70.3    |     61.71     |   **92.00**   |    54.63     |   67.76   |
 |     BERT-BiLSTM     |   74.08    |   62.85    |   70.27    |     60.86     |     91.68     |    55.46     |   70.25   |
 | BERT-BiLSTM-Context | **74.79**  | **63.65**  | **71.86**  |   **63.33**   |     91.66     |  **56.14**   | **70.98** |
-
-​							**Table 1. F1 score Improvement of the Context Mechanism on BERT**
-
+</div>
+<div style="text-align: center;">
+**Table 1. F1 score Improvement of the Context Mechanism on BERT**
+</div>
 ### Hyper-parameters    
 
 |        **Module**        | **Rest14** | **Rest15** | **Rest16** | **Laoptop14** | **Conll2003** | **Wnut2017** | **Weibo** |
@@ -35,9 +37,9 @@ Our experiments verify the global context mechanism on various pre-trained trans
 |          BiLSTM          |    1E-2    |    1E-3    |    8E-4    |      1E-3     |      5E-3     |     1E-3     |    1E-4   |
 | global context mechanism |    1E-2    |    1E-4    |    5E-4    |      5E-5     |      1E-3     |     8E-4     |    1E-4   |
 |       full-connect       |    1E-4    |    1E-4    |    1E-4    |      1E-4     |      1E-4     |     1E-4     |    1E-4   |
-
- 								**Table 2. Learning rates for BERT-based Models**
-
+<div style="text-align: center;">
+**Table 2. Learning rates for BERT-based Models**
+</div>
 The batch size for BERT-based models are as follows:
 
 **Batch size 16:**  Laptop14, Rest15, Conll2003, Wnut2017;
@@ -60,7 +62,7 @@ The batch size for BERT-based models are as follows:
 |   Wnut2017  |           20          |          10          |
 |    Weibo    |           20          |          10          |
 
-​									**Table 3. Early stopping Settings for Each Dataset.**
+**Table 3. Early stopping Settings for Each Dataset.**
 
 # Quick Start
 
