@@ -27,8 +27,9 @@ Our experiments verify the global context mechanism on various pre-trained trans
 | BERT-BiLSTM-Context | **74.79**  | **63.65**  | **71.86**  |   **63.33**   |     91.66     |  **56.14**   | **70.98** |
 </div>
 <div style="text-align: center;">
-**Table 1. F1 score Improvement of the Context Mechanism on BERT**
+Table 1. F1 score Improvement of the Context Mechanism on BERT
 </div>
+
 ### Hyper-parameters    
 
 |        **Module**        | **Rest14** | **Rest15** | **Rest16** | **Laoptop14** | **Conll2003** | **Wnut2017** | **Weibo** |
@@ -99,9 +100,13 @@ You can use this training framework in production by customizing a reader to ali
 
 The best F1 scores we achieved using the global context mechanism on each dataset, are as follows:
 
+<center>
+
 |            | Rest14  | Rest15 | Rest16 | Laoptop14 | Conll2003 | Wnut2017 | Weibo        |
 |------------|---------|--------|--------|-----------|-----------|----------|--------------|
 | F1         | 78.14   | 67.91  | 71.86  | 68.88     | 92.67     | 59.20    | 70.98        |
 | Base Model | Roberta | XLNET  | Bert   | Roberta   | Roberta   | Roberta  | Bert-Chinese |
 
-​						**Table 4. The Best F1 Score Achieved by Global Context Mechanism**
+<center>
+**Table 4. The Best F1 Score Achieved by Global Context Mechanism**
+</center>
