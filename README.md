@@ -49,15 +49,50 @@ The batch size for BERT-based models are as follows:
 **GPU:** To remedy influence the influence of hardware, we conducted our experiments on three different GPU card : Nvidia V100 16G, Nvidia A10 and Nvidia A4000. We found that the optimal learning rates for global context mechanism varied across different GPUs. Specifically, for Conll2003, Wnut2017 and Weibo, smaller learning rate were more appropriate, such as 1e-4, 5e-4 and 5e-5. However, for Rest14, 15, 16 and Laptop 14, larger learning rate were more effective.  
 
 **Early Stopping:** we employed early stopping by the F1 score on validation dataset. The details of the early stop settings are as follows:
-| **Dataset** | **Total Train Epoch** | **No Improve Epoch** |
-|:-----------:|:---------------------:|:--------------------:|
-|    Rest14   |           50          |          10          |
-|    Rest15   |           50          |          10          |
-|    Rest16   |           50          |          10          |
-|   Laptop14  |           50          |          10          |
-|  Conll2003  |           20          |          10          |
-|   Wnut2017  |           20          |          10          |
-|    Weibo    |           20          |          10          |
+<table align="center"><thead>
+  <tr>
+    <th>Dataset</th>
+    <th>Total Train Epoch</th>
+    <th>No Improve Epoch</th>
+  </tr></thead>
+<tbody>
+  <tr>
+    <td>Rest14</td>
+    <td>50</td>
+    <td>10</td>
+  </tr>
+  <tr>
+    <td>Rest15</td>
+    <td>50</td>
+    <td>10</td>
+  </tr>
+  <tr>
+    <td>Rest16</td>
+    <td>50</td>
+    <td>10</td>
+  </tr>
+  <tr>
+    <td>Laptop14</td>
+    <td>50</td>
+    <td>10</td>
+  </tr>
+  <tr>
+    <td>Conll2003</td>
+    <td>20</td>
+    <td>10</td>
+  </tr>
+  <tr>
+    <td>Wnut2017</td>
+    <td>20</td>
+    <td>10</td>
+  </tr>
+  <tr>
+    <td>Weibo</td>
+    <td>20</td>
+    <td>10</td>
+  </tr>
+</tbody>
+</table>
 <div align="center">
 Table 3. Early stopping Settings for Each Dataset.
 </div>
