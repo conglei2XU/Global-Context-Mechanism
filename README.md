@@ -107,6 +107,6 @@ The best F1 scores we achieved using the global context mechanism on each datase
 | F1         | 78.14   | 67.91  | 71.86  | 68.88     | 92.67     | 59.20    | 70.98        |
 | Base Model | Roberta | XLNET  | Bert   | Roberta   | Roberta   | Roberta  | Bert-Chinese |
 
-<center>
+<div align="center">
 **Table 4. The Best F1 Score Achieved by Global Context Mechanism**
-</center>
+</div>
