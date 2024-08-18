@@ -18,26 +18,23 @@ In our reserach, we evaluated the effectiveness of the global context mechanism 
 # Experiments
 
 Our experiments verify the global context mechanism on various pre-trained transformers. For English dataset, we used models including DeBERTa, RoBERTa, BERT, while for Chinese dataset, we applied MacBERT-Chinese and BERT-Chinese  respectively. In there,  we  detailed the F1 improvement and training hyper-parameters for BERT. Additionally, we utilized BertTwitter and BERT-Chinese for the Wnut2017 and Weibo datasets, respectively. 
-<div align="center">
 |     **Module**      | **Rest14** | **Rest15** | **Rest16** | **Laoptop14** | **Conll2003** | **Wnut2017** | **Weibo** |
 | :-----------------: | :--------: | :--------: | :--------: | :-----------: | :-----------: | :----------: | :-------: |
 |        BERT         |   71.86    |   60.06    |    70.3    |     61.71     |   **92.00**   |    54.63     |   67.76   |
 |     BERT-BiLSTM     |   74.08    |   62.85    |   70.27    |     60.86     |     91.68     |    55.46     |   70.25   |
 | BERT-BiLSTM-Context | **74.79**  | **63.65**  | **71.86**  |   **63.33**   |     91.66     |  **56.14**   | **70.98** |
-</div>
 <div align="center">
 Table 1. F1 score Improvement of the Context Mechanism on BERT
 </div>
 
 ### Hyper-parameters    
-<div align="center">
 |        **Module**        | **Rest14** | **Rest15** | **Rest16** | **Laoptop14** | **Conll2003** | **Wnut2017** | **Weibo** |
 |:------------------------:|:----------:|:----------:|:----------:|:-------------:|:-------------:|:------------:|:---------:|
 |           BERT           |    5E-5    |    5E-5    |    5E-5    |      5E-5     |      1E-5     |     1E-5     |    1E-5   |
 |          BiLSTM          |    1E-2    |    1E-3    |    8E-4    |      1E-3     |      5E-3     |     1E-3     |    1E-4   |
 | global context mechanism |    1E-2    |    1E-4    |    5E-4    |      5E-5     |      1E-3     |     8E-4     |    1E-4   |
 |       full-connect       |    1E-4    |    1E-4    |    1E-4    |      1E-4     |      1E-4     |     1E-4     |    1E-4   |
-</div>
+
 <div align="center">
 Table 2. Learning rates for BERT-based Models
 </div>
@@ -52,7 +49,6 @@ The batch size for BERT-based models are as follows:
 **GPU:** To remedy influence the influence of hardware, we conducted our experiments on three different GPU card : Nvidia V100 16G, Nvidia A10 and Nvidia A4000. We found that the optimal learning rates for global context mechanism varied across different GPUs. Specifically, for Conll2003, Wnut2017 and Weibo, smaller learning rate were more appropriate, such as 1e-4, 5e-4 and 5e-5. However, for Rest14, 15, 16 and Laptop 14, larger learning rate were more effective.  
 
 **Early Stopping:** we employed early stopping by the F1 score on validation dataset. The details of the early stop settings are as follows:
-<div align="center">
 | **Dataset** | **Total Train Epoch** | **No Improve Epoch** |
 |:-----------:|:---------------------:|:--------------------:|
 |    Rest14   |           50          |          10          |
@@ -62,7 +58,6 @@ The batch size for BERT-based models are as follows:
 |  Conll2003  |           20          |          10          |
 |   Wnut2017  |           20          |          10          |
 |    Weibo    |           20          |          10          |
-</div>
 <div align="center">
 Table 3. Early stopping Settings for Each Dataset.
 </div>
@@ -101,14 +96,10 @@ You can use this training framework in production by customizing a reader to ali
 
 The best F1 scores we achieved using the global context mechanism on each dataset, are as follows:
 
-<div align="center">
-
 |            | Rest14  | Rest15 | Rest16 | Laoptop14 | Conll2003 | Wnut2017 | Weibo        |
 |------------|---------|--------|--------|-----------|-----------|----------|--------------|
 | F1         | 78.14   | 67.91  | 71.86  | 68.88     | 92.67     | 59.20    | 70.98        |
 | Base Model | Roberta | XLNET  | Bert   | Roberta   | Roberta   | Roberta  | Bert-Chinese |
-</div>
 <div align="center">
 Table 4. The Best F1 Score Achieved by Global Context Mechanism
 </div>
-
