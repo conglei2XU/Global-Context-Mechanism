@@ -52,9 +52,12 @@ def ner_reader_cn(dataset_path):
         labels = []
         for line in f:
             if line != '\n' and line != '\t\n':
-                pairs = line.strip()
+                if '\t' in line:
+                    pairs = line.split('\t')
+                else:
+                    pairs = line.split()
                 sentence.append(pairs[0])
-                labels.append(pairs[-1])
+                labels.append(pairs[1].strip())
             else:
                 if sentence:
                     yield sentence, labels

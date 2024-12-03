@@ -8,11 +8,12 @@ from argparse import ArgumentParser
 
 def init_args():
     argument = ArgumentParser()
-    argument.add_argument('--result_dir', type=str, default='results/LLM')
-    argument.add_argument('--dataset_dir', type=str, default='Dataset/LLM')
+    argument.add_argument('--result_dir', type=str, default='results/LLM-Inference')
+    argument.add_argument('--dataset_dir', type=str, default='Dataset/LLM-Inference')
     # tasks specified configuration
     argument.add_argument('--task_type', type=str, default='NER')
-    argument.add_argument('--dataset_name', type=str, default='Conll2003')
+    argument.add_argument('--dataset_name', type=str, default='wnut2017')
+    argument.add_argument('--prompt_type', type=str, default='common')
     args = argument.parse_args()
     return args
 
@@ -37,36 +38,29 @@ def llm_ner_metrics(gold_path, pred_path):
     for pred_item in raw_pred:
         all_num += 1
         origin_text = pred_item['text']
-        raw_results = pred_item['result']
+        raw_result = pred_item['result']
         value = []
+        # json_pattern_first = r'\{.*?\}'
+        # json_pattern_first = r'Output:(.*?)'
 
-        json_pattern = r'"(\w+)":\W?(\[.*?\])'
         hash_key = hash(' '.join(origin_text))
-        try:
-            # raw_results = raw_results.replace("'", '"')
-            # raw_results = re.sub(r'(\w+)"s', r"\1's", raw_results)
-            # raw_results = re.sub(r'(\w+)"( \w)', r"\1'\2", raw_results)
-            # raw_results = re.sub(r'(\w+) "S', r"\1 'S", raw_results)
-            # raw_results = re.sub(r'(\w+)"(\w)', r"\1'\2", raw_results)
-            entity_mapping = json.loads(raw_results.strip())
-        except JSONDecodeError as e:
-            entity_mapping = {}
-            matches = re.findall(json_pattern, raw_results)
-            if matches:
-                for (entity_type, entities) in matches:
-                    entity_mapping[entity_type] = eval(entities)
-            else:
-                unmatch_num += 1
-                pred[hash_key] = []
-                continue
+        entity_mapping = {}
+        if raw_result is None:
+            print("llm'answer is invalid")
+            pred[hash_key] = []
+            continue
+        else:
+            raw_result = raw_result.replace('\n', '')
+        match_flag, entity_mapping = parser_llms_ans(raw_result=raw_result)
+        unmatch_num += match_flag
         if isinstance(entity_mapping, str):
             entity_mapping = json.loads(entity_mapping)
         for entity_type, entities in entity_mapping.items():
             if entities:
                 for entity in entities:
                     value.append((entity_type, entity))
-        pred[hash_key] = value
-    print(f'the unmatched precentage of LLM ans : {unmatch_num/all_num}')
+            pred[hash_key] = value
+    print(f'the unmatched precentage of LLM-Inference ans : {unmatch_num / all_num}')
     nb_true, nb_pred, nb_label = 0, 0, 0
     for hash_key, pred_ans in pred.items():
         gold_ans = gold[hash_key]
@@ -82,10 +76,47 @@ def llm_ner_metrics(gold_path, pred_path):
     return f1
 
 
+def parser_llms_ans(raw_result):
+    entity_mapping = {}
+    match_flag = False
+    json_pattern_first = r'\{.*?\}'
+    # json_pattern_first = r'Output:(.*?)'
+    json_pattern_second = r'"(\w?)":\W?(\[.*?\])'
+    json_pattern_backup = r"'(\w?)':\W?(\[.*?\])"
+    try:
+        json_ans = re.findall(json_pattern_first, raw_result)
+        if json_ans:
+            entity_mapping = json.loads(json_ans[-1].strip())
+        else:
+            print('json content parser error.')
+    except JSONDecodeError:
+        entity_mapping = {}
+        first_matches = re.findall(json_pattern_second, json_ans[-1])
+        backup_match = re.findall(json_pattern_backup, json_ans[-1])
+        matches = first_matches if first_matches else backup_match
+        if matches:
+            match_flag = True
+            for (entity_type, entities) in matches:
+                if len(entities) > 100:
+                    print(f'{entities} is too long')
+                else:
+                    left_bracket, right_bracket = entities.count('['), entities.count(']')
+                    if left_bracket > right_bracket:
+                        entities = entities.replace('[', '', 1)
+
+                    entity_mapping[entity_type] = eval(entities)
+        else:
+            print('{entity_type: [entities] format results parser error')
+            print(f'{raw_result}')
+
+    return match_flag, entity_mapping
+
+
 def main():
     args = init_args()
     gold_path = os.path.join(args.dataset_dir, args.task_type, args.dataset_name, 'test.jsonl')
-    pred_path = os.path.join(args.result_dir,args.task_type, args.dataset_name, 'ans.json')
+    pred_path = os.path.join(args.result_dir, args.task_type, args.prompt_type, args.dataset_name,
+                             'ans_limitations.json')
     f1 = llm_ner_metrics(gold_path=gold_path, pred_path=pred_path)
     print(f1)
 

@@ -1,6 +1,9 @@
 # --*-- coding: utf-8 --*--
-# last updated: 2024.08.08
+# last updated: 2024.04.23
 import os
+import pdb
+
+import pandas as pd
 
 os.environ['CUBLAS_WORKSPACE_CONFIG'] = ':16:8'
 import argparse
@@ -117,7 +120,7 @@ def init_args():
                           default='cache/')
     argument.add_argument('--result_dir', type=str, default='results')
     argument.add_argument('--dataset_dir', type=str, default='Dataset')
-    argument.add_argument('--model_dir', type=str, default='saved_model')
+    argument.add_argument('--model_dir', type=str, default='pretrained-models/')
     argument.add_argument('--tmp_dir', type=str, default='tmp')
     argument.add_argument('--device', type=str, default='cuda')
     argument.add_argument('--fix_pretrained', type=str, default='False')
@@ -126,19 +129,19 @@ def init_args():
     # tasks specified configuration
     argument.add_argument('--task_type', type=str, default='NER')
     # argument.add_argument('--task_type', type=str, default='pos')
-    argument.add_argument('--mode', type=str, choices=['light', 'pretrained'], default='pretrained')
+    argument.add_argument('--mode', type=str, choices=['light', 'pretrained'], default='light')
     # argument.add_argument('--dataset_name', type=str, default='Ontonotes')
-    argument.add_argument('--dataset_name', type=str, default='Conll2003')
+    argument.add_argument('--dataset_name', type=str, default='weibo')
     # argument.add_argument('--dataset_name', type=str, default='weibo')
     argument.add_argument('--train', type=str, default='True')
     # common configuration for models
     argument.add_argument('--use_crf', type=str, default='False')
-    argument.add_argument('--use_context', type=str, default='True')
+    argument.add_argument('--use_context', type=str, default='False')
     argument.add_argument('--context_mechanism', type=str, choices=['global', 'self-attention'], default='global')
     argument.add_argument('--seed', type=int, default=40)
-    argument.add_argument('--num_epoch', type=int, default=20)
+    argument.add_argument('--num_epoch', type=int, default=50)
     argument.add_argument('--batch_size', type=int, default=16)
-    argument.add_argument('--learning_rate', type=float, default=5e-5)
+    argument.add_argument('--learning_rate', type=float, default=1e-2)
     argument.add_argument('--learning_rate_tagger', type=float, default=1e-3)
     argument.add_argument('--learning_rate_context', type=float, default=1e-3)
     argument.add_argument('--learning_rate_classifier', type=float, default=1e-4)
@@ -153,11 +156,11 @@ def init_args():
     argument.add_argument('--no_improve', type=int, default=10, help='how many steps no improvement to stop training')
     # configuration for light models
     argument.add_argument('--use_char', type=str, default='False')
-    argument.add_argument('--word_vector', type=str, default=r'WordVector/glove.6B.100d.txt')
+    argument.add_argument('--word_vector', type=str, default=r'WordVector/sgns.weibo.bigram')
     # argument.add_argument('--word_vector', type=str, default=r'WordVector/glove.twitter.27B.200d.txt')
     # argument.add_argument('--word_vector', type=str,
     #                       default=r'/home/WordVector/glove.twitter.27B.200d.txt')
-    argument.add_argument('--word_dim', type=int, default=100)
+    argument.add_argument('--word_dim', type=int, default=300)
     argument.add_argument('--char_dim', type=int, default=30)
     argument.add_argument('--char_embedding_dim', type=int, default=30)
     argument.add_argument('--hidden_dim', type=int, default=600)
@@ -169,12 +172,13 @@ def init_args():
     argument.add_argument('--extra_word_feature', type=str, default='True')
     argument.add_argument('--extra_char_feature', type=str, default='True')
     # configuration for pretrained models
-    argument.add_argument('--model_name', type=str, default='bert-base-cased')
+    argument.add_argument('--model_name', type=str, default='lstm')
     argument.add_argument('--bert_size', type=int, default=768)
     argument.add_argument('--use_tagger', type=str, default='True')
     argument.add_argument('--tagger_name', type=str, choices=['LSTM', 'GRU'], default='LSTM')
     argument.add_argument('--tagger_size', type=int, default=600)
     argument.add_argument('--tagger_bidirectional', type=str, default='True')
+    argument.add_argument('--scores', type=str, default='score')
     args = argument.parse_args()
     return args
 
@@ -210,13 +214,13 @@ def pretrained_mode(args):
         idx = label2idx[label]
         idx2label[idx] = label
     metric = METRIC.get(args.task_type, NERMetric)
-    cache_dir = os.path.join(args.cache_dir, args.mode, args.model_name)
+
     try:
-        config_ = AutoConfig.from_pretrained(args.model_name, hidden_size=args.bert_size)
-        tokenizer_ = TOKENIZERS[args.model_name].from_pretrained(args.model_name, add_prefix_space=True,
+        config_ = AutoConfig.from_pretrained(os.path.join(args.model_dir, args.model_name), hidden_size=args.bert_size)
+        tokenizer_ = TOKENIZERS[args.model_name].from_pretrained(os.path.join(args.model_dir, args.model_name), add_prefix_space=True,
                                                                  num_labels=len(idx2label), id2label=idx2label)
     except KeyError:
-        tokenizer_ = AutoTokenizer.from_pretrained(args.model_name, fintuning_task=args.task_type,
+        tokenizer_ = AutoTokenizer.from_pretrained(os.path.join(args.model_dir, args.model_name), fintuning_task=args.task_type,
                                                    id2label=idx2label, num_labels=len(idx2label))
     # if os.path.exists(cache_dir):
     #     config_ = AutoConfig.from_pretrained(args.model_name, hidden_size=args.bert_size)
@@ -233,6 +237,7 @@ def pretrained_mode(args):
     tagger_config['context_mechanism'] = args.context_mechanism
     tagger_config['bidirectional'] = eval(args.tagger_bidirectional)
     tagger_config['num_layers'] = args.num_layers
+    tagger_config['dropout_rate'] = args.dropout_rate
     collate_fn_seq = CollateFnSeq(tokenizer=tokenizer_, label2idx=label2idx)
 
     train_loader = DataLoader(train_data, collate_fn=collate_fn_seq, batch_size=args.batch_size)
@@ -244,7 +249,7 @@ def pretrained_mode(args):
     setattr(config_, 'use_context', eval(args.use_context))
     setattr(config_, 'use_crf', eval(args.use_crf))
     setattr(config_, 'fix_pretrained', eval(args.fix_pretrained))
-    model = BertForSeqTask(args.model_name, config_)
+    model = BertForSeqTask(os.path.join(args.model_dir, args.model_name), config_)
     model.to(device=device)
     # param_ = [n for n, p in model.named_parameters() if 'context' in n]
     param_groups = [
@@ -330,7 +335,7 @@ def light_mode(args):
         if os.path.exists(vector_cache):
             word_vector = pickle.load(open(vector_cache, 'rb'))
         else:
-            if not os.path.exists(cache_dir):
+            if not os.path.exists(args.cache_dir):
                 os.makedirs(cache_dir)
             if os.path.exists(args.word_vector):
                 word_vector = read_vector(word_vector_source=args.word_vector, vector_dim=args.word_dim)
@@ -346,7 +351,7 @@ def light_mode(args):
         word_alphabet, char_alphabet, label_alphabet \
             = init_alphabet(word_counter, char_counter, label_counter, use_crf=eval(args.use_crf))
         num_labels = len(label_alphabet) if eval(args.use_crf) else len(label_alphabet) - 1
-        # print(label_alphabet.token2id)
+        print(len(word_alphabet))
         if word_vector:
             word_alphabet.add(word_vector)
         tokenizer.add_alphabet(word_alphabet, label_alphabet, char_alphabet)
@@ -446,6 +451,7 @@ def train(model,
     all_step = len(train_loader) * args.num_epoch
     global_step = 0
     best_model_path = None
+    cache_dir = os.path.join(args.cache_dir, args.dataset_name, args.model_name)
     for epoch in range(1, args.num_epoch + 1):
         local_step = 0
         epoch_loss = 0.
@@ -504,9 +510,9 @@ def train(model,
                 save_name = "{}_{}.pth".format(args.model_name, epoch)
             else:
                 save_name = "{}_{}.pth".format('lstm', epoch)
-            if not os.path.exists(args.model_dir):
-                os.makedirs(args.model_dir)
-            best_model_path = os.path.join(args.model_dir, save_name)
+            if not os.path.exists(cache_dir):
+                os.makedirs(cache_dir)
+            best_model_path = os.path.join(cache_dir, save_name)
             torch.save(model, best_model_path)
             no_improve_step = 0
         else:
@@ -523,6 +529,7 @@ def test(best_model_path, args, test_loader, device, metric):
         logger.info("-" * 25 + 'test' + '-' * 25)
         logger.info(f'Best model: {os.path.basename(best_model_path)}')
         model_test = torch.load(best_model_path)
+
         best_file_dir = os.path.join(args.result_dir, args.dataset_name, args.mode)
         if not os.path.exists(best_file_dir):
             os.makedirs(best_file_dir)
@@ -561,6 +568,47 @@ def test(best_model_path, args, test_loader, device, metric):
                                                                             fined_f1['recall'],
                                                                             fined_f1['f1']))
         f.close()
+        if eval(args.use_context):
+            score_file_name = args.model_name.split('-')[0] + '-context.csv'
+            columns = ['dataset', 'batch_size', 'learning_rate', 'learning_rate_tagger',
+                       'learning_rate_context', 'model', 'context', 'dropout', 'f1-score']
+            score_df_this = pd.DataFrame(
+                [[
+                    args.dataset_name,
+                    args.batch_size,
+                    args.learning_rate,
+                    args.learning_rate_tagger,
+                    args.learning_rate_context,
+                    args.model_name,
+                    args.context_mechanism,
+                    args.dropout_rate,
+                    round(f1['f1'], 4) * 100,
+
+                ]], columns=columns)
+        else:
+            score_file_name = args.model_name.split('-')[0] + '-tagger.csv'
+            columns = ['dataset', 'batch_size', 'learning_rate', 'learning_rate_tagger',
+                       'learning_rate_context', 'model', 'context', 'f1-score']
+            score_df_this = pd.DataFrame(
+                [[args.dataset_name,
+                  args.batch_size,
+                  args.learning_rate,
+                  args.learning_rate_tagger,
+                  args.learning_rate_context,
+                  args.model_name, args.context_mechanism, round(f1['f1'], 4) * 100
+                  ]], columns=columns)
+
+        score_file_dir = os.path.join(args.scores, args.dataset_name)
+        if not os.path.exists(score_file_dir):
+            os.makedirs(score_file_dir)
+        score_file = os.path.join(score_file_dir, score_file_name)
+        if os.path.exists(score_file):
+            score_df_previous = pd.read_csv(score_file)
+            score_df = pd.concat([score_df_previous, score_df_this])
+        else:
+            score_df = score_df_this
+        sorted_score_df = score_df.sort_values(by='f1-score')
+        sorted_score_df.to_csv(score_file, index=False)
 
 
 def evaluate(data_loader, metrics, model, device, mode='pretrained', use_crf=False):
@@ -607,7 +655,7 @@ if __name__ == "__main__":
     log_name = arguments.model_name
     if eval(arguments.use_tagger):
         log_name += '-tagger'
-        arguments.model_dir += '-tagger'
+        arguments.model_dir += 'tagger'
     if eval(arguments.use_context):
         arguments.model_dir += '-context'
         log_name += '-context'

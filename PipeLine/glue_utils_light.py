@@ -19,7 +19,7 @@ def read_vector(word_vector_source, skip_head=False, vector_dim=100) -> dict:
     """
     word_vector = {}
     with open(word_vector_source, 'r', encoding='utf-8') as f:
-        if skip_head:
+        if 'weibo' in word_vector_source:
             f.readline()
         line = f.readline()
         assert len(line.split()) == vector_dim + 1
