@@ -1,27 +1,27 @@
 # --*-- coding: utf-8 --*--
-# last updated: 2024.04.23
+# last updated: 2025.06.23
 import os
 import pdb
 
 import pandas as pd
 
-os.environ['CUBLAS_WORKSPACE_CONFIG'] = ':16:8'
+# os.environ['CUBLAS_WORKSPACE_CONFIG'] = ':16:8'
 import argparse
 import random
+import time
 from functools import partial
-from collections import Counter, defaultdict
+from collections import Counter
 
 import pickle
 import logging
 import torch
-import tqdm
+from tqdm import tqdm
 import torch.optim as optim
 from torch.optim.lr_scheduler import StepLR
 import numpy as np
-from torch.utils.data import DataLoader, TensorDataset
+from torch.utils.data import DataLoader
 from transformers import (
     AutoConfig,
-    XLNetConfig,
     RobertaTokenizerFast,
     BertTokenizerFast,
     XLNetTokenizerFast,
@@ -30,16 +30,21 @@ from transformers import (
     DebertaTokenizerFast,
 )
 from transformers import get_linear_schedule_with_warmup
+from torch.profiler import profile, record_function, ProfilerActivity
 
-from utils.metrics import NERMetric, POSMetric
-from utils.constants import default_token, default_token_label, default_token_label_crf
+from utils.metrics import NERMetric, POSMetric, NERMetricPretrain
+from utils.constants import (
+    default_token,
+    default_token_label,
+    default_token_label_crf,
+)
 from utils.tools import log_wrapper
-from utils.file_reader import ner_reader, pos_reader
-from PipeLine.glue_utils_light import read_vector, build_matrix
-from PipeLine.tokenizer import NERTokenizer
-from PipeLine.dataset_light import NERDataset
-from PipeLine.vocabulary import TokenAlphabet
-from PipeLine.glue_utils_transformer import SeqDataset, CollateFnSeq
+from utils.file_reader import ner_reader, jsonl_reader
+from pipeline.pipeline_light import read_vector, build_matrix, collate_fn
+from pipeline.tokenizer import NERTokenizer
+from pipeline.dataset_light import NERDataset
+from pipeline.vocabulary import TokenAlphabet
+from pipeline.pipeline_pretrain import SeqDataset, SeqDatasetCRF
 from model.transformer_base import BertForSeqTask
 from model.rnn import RNNNet
 from model.S_LSTM import SLSTMCell
@@ -48,15 +53,16 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 READER = {
-    'absa': ner_reader,
-    'NER': ner_reader,
-    'pos': pos_reader
+    'default': ner_reader,
+    'UnicomNER_bio': jsonl_reader
 }
 
 METRIC = {
-    'absa': NERMetric,
-    'NER': NERMetric,
-    'pos': POSMetric
+    'light_absa': NERMetric,
+    'pretrained_absa': NERMetricPretrain,
+    'light_NER': NERMetric,
+    'pretrained_NER': NERMetricPretrain,
+    'light_pos': POSMetric
 }
 
 MODEL = {'lstm': RNNNet,
@@ -120,18 +126,18 @@ def init_args():
                           default='cache/')
     argument.add_argument('--result_dir', type=str, default='results')
     argument.add_argument('--dataset_dir', type=str, default='Dataset')
-    argument.add_argument('--model_dir', type=str, default='pretrained-models/')
+    argument.add_argument('--model_dir', type=str, default='pretrained-models')
     argument.add_argument('--tmp_dir', type=str, default='tmp')
-    argument.add_argument('--device', type=str, default='cuda')
+    argument.add_argument('--device', type=str, default='cuda:0')
     argument.add_argument('--fix_pretrained', type=str, default='False')
     argument.add_argument('--best_model', type=str,
                           default='/home/cs.aau.dk/ut65zx/saved_model-tagger-context/bert-base-chinese_13.pth')
     # tasks specified configuration
     argument.add_argument('--task_type', type=str, default='NER')
     # argument.add_argument('--task_type', type=str, default='pos')
-    argument.add_argument('--mode', type=str, choices=['light', 'pretrained'], default='light')
+    argument.add_argument('--mode', type=str, choices=['light', 'pretrained'], default='pretrained')
     # argument.add_argument('--dataset_name', type=str, default='Ontonotes')
-    argument.add_argument('--dataset_name', type=str, default='weibo')
+    argument.add_argument('--dataset_name', type=str, default='wnut2017')
     # argument.add_argument('--dataset_name', type=str, default='weibo')
     argument.add_argument('--train', type=str, default='True')
     # common configuration for models
@@ -139,11 +145,12 @@ def init_args():
     argument.add_argument('--use_context', type=str, default='False')
     argument.add_argument('--context_mechanism', type=str, choices=['global', 'self-attention'], default='global')
     argument.add_argument('--seed', type=int, default=40)
-    argument.add_argument('--num_epoch', type=int, default=50)
+    argument.add_argument('--num_epoch', type=int, default=20)
     argument.add_argument('--batch_size', type=int, default=16)
-    argument.add_argument('--learning_rate', type=float, default=1e-2)
+    argument.add_argument('--learning_rate', type=float, default=1e-5)
     argument.add_argument('--learning_rate_tagger', type=float, default=1e-3)
     argument.add_argument('--learning_rate_context', type=float, default=1e-3)
+    argument.add_argument('--learning_rate_crf', type=float, default=1e-3)
     argument.add_argument('--learning_rate_classifier', type=float, default=1e-4)
     argument.add_argument('--momentum', type=float, default=0.9)
     argument.add_argument('--dropout_rate', type=float, default=0.1)
@@ -153,10 +160,10 @@ def init_args():
     argument.add_argument('--warmup_step', type=int, default=5, help='how many steps to execute warmup strategy')
     argument.add_argument('--warmup_strategy', type=str, choices=['None', 'Linear', 'Cosine', 'Constant'],
                           default='None')
-    argument.add_argument('--no_improve', type=int, default=10, help='how many steps no improvement to stop training')
+    argument.add_argument('--no_improve', type=int, default=4, help='how many steps no improvement to stop training')
     # configuration for light models
     argument.add_argument('--use_char', type=str, default='False')
-    argument.add_argument('--word_vector', type=str, default=r'WordVector/sgns.weibo.bigram')
+    argument.add_argument('--word_vector', type=str, default=r'WordVector/glove.6B.300d.txt')
     # argument.add_argument('--word_vector', type=str, default=r'WordVector/glove.twitter.27B.200d.txt')
     # argument.add_argument('--word_vector', type=str,
     #                       default=r'/home/WordVector/glove.twitter.27B.200d.txt')
@@ -169,17 +176,51 @@ def init_args():
     argument.add_argument('--num_layers', type=int, default=1)
     argument.add_argument('--use_flair', type=str, default='False')
     argument.add_argument('--char_window_size', type=int, default=3)
-    argument.add_argument('--extra_word_feature', type=str, default='True')
-    argument.add_argument('--extra_char_feature', type=str, default='True')
+    argument.add_argument('--extra_word_feature', type=str, default='False')
+    argument.add_argument('--extra_char_feature', type=str, default='False')
     # configuration for pretrained models
-    argument.add_argument('--model_name', type=str, default='lstm')
+    argument.add_argument('--model_name', type=str, default='bert-base-cased')
     argument.add_argument('--bert_size', type=int, default=768)
-    argument.add_argument('--use_tagger', type=str, default='True')
+    argument.add_argument('--use_tagger', type=str, default='False')
     argument.add_argument('--tagger_name', type=str, choices=['LSTM', 'GRU'], default='LSTM')
     argument.add_argument('--tagger_size', type=int, default=600)
+    argument.add_argument('--num_workers', type=int, default=8)
     argument.add_argument('--tagger_bidirectional', type=str, default='True')
     argument.add_argument('--scores', type=str, default='score')
+    argument.add_argument('--fp16', type=int, choices=[0, 1], default=0,
+                          help="use 16-bit floating point precision instead of 32-bit")
     args = argument.parse_args()
+    # print key config
+    print('-' * 50)
+    print('Training config: ')
+    print(f'Task type: {args.task_type}')
+    print(f'Dataset name: {args.dataset_name}')
+    print(f'Training mode: {args.mode}')
+    print(f'Model architecture: {args.model_name}')
+    print(f"Fixed Transformer: {args.fix_pretrained}")
+    print(f'Using CRF: {args.use_crf}')
+    if args.mode == 'pretrained':
+        print(f'Using tagger: {args.use_tagger}')
+    if eval(args.use_context):
+        print(f'Using context mechanism: True--{args.context_mechanism}')
+    else:
+        print(f'Using context mechanism: False')
+    print('-' * 50)
+    print('-' * 50)
+    print('Hyperparameters: ')
+    if args.mode == 'pretrained':
+        print(f'Bert learning rate: {args.learning_rate}')
+        if eval(args.use_tagger):
+            print(f'Tagger(BiLSTM) learning rate: {args.learning_rate_tagger}')
+    else:
+        print(f'BiLSTM learning rate: {args.learning_rate}')
+    if eval(args.use_context):
+        print(f'Context mechanism ({args.context_mechanism}) learning rate: {args.learning_rate_context}')
+    if eval(args.use_crf):
+        print(f'CRF learning rate: {args.learning_rate_crf}')
+    print(f'Batch size: {args.batch_size}')
+    print(f'Early stop: {args.no_improve}')
+    print('-' * 50)
     return args
 
 
@@ -190,45 +231,52 @@ def batch_to_device(batch, device):
 
 
 def pretrained_mode(args):
+    # train_source = os.path.join(args.dataset_dir, args.task_type, args.dataset_name, 'test.jsonl')
+    # valid_source = os.path.join(args.dataset_dir, args.task_type, args.dataset_name, 'test.jsonl')
+    # test_source = os.path.join(args.dataset_dir, args.task_type, args.dataset_name, 'test.jsonl')
+
     train_source = os.path.join(args.dataset_dir, args.task_type, args.dataset_name, 'train.txt')
     valid_source = os.path.join(args.dataset_dir, args.task_type, args.dataset_name, 'valid.txt')
     test_source = os.path.join(args.dataset_dir, args.task_type, args.dataset_name, 'test.txt')
-
-    # train_source = os.path.join(args.dataset_dir, args.task_type, args.dataset_name, 'test.txt')
-    # valid_source = os.path.join(args.dataset_dir, args.task_type, args.dataset_name, 'test.txt')
-    # test_source = os.path.join(args.dataset_dir, args.task_type, args.dataset_name, 'test.txt')
     if torch.cuda.is_available() and torch.device != 'cpu':
         device = torch.device(device=args.device)
     else:
         device = torch.device(device='cpu')
-
-    reader_ = READER.get(args.task_type, ner_reader)
-    train_data = SeqDataset(train_source, read_method=reader_)
-    valid_data = SeqDataset(valid_source, read_method=reader_)
-    test_data = SeqDataset(test_source, read_method=reader_)
-    label_list = train_data.get_label()
-    label2idx = defaultdict()
-    label2idx.default_factory = label2idx.__len__
-    idx2label = {}
-    for label in label_list:
-        idx = label2idx[label]
-        idx2label[idx] = label
-    metric = METRIC.get(args.task_type, NERMetric)
-
+    print(device)
     try:
         config_ = AutoConfig.from_pretrained(os.path.join(args.model_dir, args.model_name), hidden_size=args.bert_size)
-        tokenizer_ = TOKENIZERS[args.model_name].from_pretrained(os.path.join(args.model_dir, args.model_name), add_prefix_space=True,
-                                                                 num_labels=len(idx2label), id2label=idx2label)
+        tokenizer_ = TOKENIZERS[args.model_name].from_pretrained(os.path.join(args.model_dir, args.model_name),
+                                                                 use_fast=True, add_prefix_space=True)
     except KeyError:
-        tokenizer_ = AutoTokenizer.from_pretrained(os.path.join(args.model_dir, args.model_name), fintuning_task=args.task_type,
-                                                   id2label=idx2label, num_labels=len(idx2label))
-    # if os.path.exists(cache_dir):
-    #     config_ = AutoConfig.from_pretrained(args.model_name, hidden_size=args.bert_size)
-    #     tokenizer_ = TOKENIZERS[args.model_name].from_pretrained(args.model_name, add_prefix_space=True)
-    # else:
-    #     os.makedirs(cache_dir)
-    #     config_ = AutoConfig.from_pretrained(args.model_name)
-    #     tokenizer_ = TOKENIZERS[args.model_name].from_pretrained(args.model_name, fintuning_task=args.task_type, id2label=idx2label,  num_labels=len(idx2label))
+        tokenizer_ = AutoTokenizer.from_pretrained(os.path.join(args.model_dir, args.model_name), use_fast=True)
+
+    reader_ = READER.get(args.dataset_name, ner_reader)
+    # When initialize dataset, we need first build label2idx from train data
+    # Then we pass this label2idx to other dataset.
+    if 'weibo' in train_source:
+        langauge = 'CN'
+    else:
+        langauge = 'EN'
+    if eval(args.use_crf):
+        train_data = SeqDatasetCRF(train_source, read_method=reader_, tokenizer=tokenizer_, language=langauge)
+        valid_data = SeqDatasetCRF(valid_source, read_method=reader_, tokenizer=tokenizer_,
+                                   label2idx=train_data.label2idx, language=langauge)
+        test_data = SeqDatasetCRF(test_source, read_method=reader_, tokenizer=tokenizer_,
+                                  label2idx=train_data.label2idx, language=langauge)
+
+    else:
+        train_data = SeqDataset(train_source, read_method=reader_, tokenizer=tokenizer_, language=langauge)
+        valid_data = SeqDataset(valid_source, read_method=reader_, tokenizer=tokenizer_, label2idx=train_data.label2idx,
+                                language=langauge)
+        test_data = SeqDataset(test_source, read_method=reader_, tokenizer=tokenizer_, label2idx=train_data.label2idx,
+                               language=langauge)
+
+    label2idx = train_data.label2idx
+    idx2label = train_data.idx2label
+
+    metric = METRIC.get(args.mode + '_' + args.task_type, NERMetric)
+    print(os.path.join(args.model_dir, args.model_name))
+
     tagger_config = dict()
     tagger_config['hidden_size'] = args.tagger_size
     tagger_config['input_size'] = args.bert_size
@@ -238,12 +286,17 @@ def pretrained_mode(args):
     tagger_config['bidirectional'] = eval(args.tagger_bidirectional)
     tagger_config['num_layers'] = args.num_layers
     tagger_config['dropout_rate'] = args.dropout_rate
-    collate_fn_seq = CollateFnSeq(tokenizer=tokenizer_, label2idx=label2idx)
 
-    train_loader = DataLoader(train_data, collate_fn=collate_fn_seq, batch_size=args.batch_size)
-    eval_loader = DataLoader(valid_data, collate_fn=collate_fn_seq, batch_size=args.batch_size)
-    test_loader = DataLoader(test_data, collate_fn=collate_fn_seq, batch_size=16)
-    setattr(config_, 'num_labels', len(idx2label))
+    train_loader = DataLoader(train_data,
+                              shuffle=False,
+                              collate_fn=train_data.collate_fn,
+                              batch_size=args.batch_size,
+                              pin_memory=True,
+                              # num_workers=args.num_workers
+                              )
+    eval_loader = DataLoader(valid_data, collate_fn=valid_data.collate_fn, batch_size=16)
+    test_loader = DataLoader(test_data, collate_fn=train_data.collate_fn, batch_size=16)
+    setattr(config_, 'label2idx', label2idx)
     setattr(config_, 'use_tagger', eval(args.use_tagger))
     setattr(config_, 'tagger_config', tagger_config)
     setattr(config_, 'use_context', eval(args.use_context))
@@ -254,14 +307,16 @@ def pretrained_mode(args):
     # param_ = [n for n, p in model.named_parameters() if 'context' in n]
     param_groups = [
         {'params': [p for n, p in model.named_parameters() if 'tagger' in n], 'lr': args.learning_rate_tagger},
-        {'params': [p for n, p in model.named_parameters() if 'bert' in n], },
+        {'params': [p for n, p in model.named_parameters() if 'bert' in n], 'lr': args.learning_rate},
         {'params': [p for n, p in model.named_parameters() if 'context' in n], 'lr': args.learning_rate_context},
+        {'params': [p for n, p in model.named_parameters() if 'CRF' in n], 'lr': args.learning_rate_crf},
         {'params': model.classifier.parameters(), 'lr': args.learning_rate_classifier}
     ]
     # optimizer = optim.AdamW(model.parameters(), lr=args.learning_rate, eps=args.adam_eps)
-    optimizer = optim.AdamW(param_groups, lr=args.learning_rate, eps=args.adam_eps)
+    optimizer = optim.AdamW(param_groups, eps=args.adam_eps)
+    # optimizer = StableAdamW(model.parameters(), lr=args.learning_rate)
     # optimizer = optim.Adam(param_groups, lr=args.learning_rate, eps=args.adam_eps,
-    # betas=(0.9,0.999))
+    #                        betas=(0.9, 0.999))
     all_step = len(train_loader) * args.num_epoch
     scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=args.warmup_step,
                                                 num_training_steps=all_step)
@@ -283,31 +338,7 @@ def pretrained_mode(args):
     else:
         best_model_path = args.best_model
 
-    test(best_model_path, args, test_loader, device, metric(idx2label))
-
-
-def collate_fn(tokenizer, batch_data=None):
-    """
-    process batch data before feeding into the model
-    """
-    sentences = []
-    labels = []
-    sent_length = []
-    word_length = []
-    chars = []
-    for data in batch_data:
-        sentences.append(data['sentence'])
-        labels.append(data['labels'])
-        sent_length.append(data['sentence_length'])
-        word_length.append(data['word_length'])
-        chars.append(data['chars'])
-    input_batch = tokenizer.encode(sentences, labels, chars)
-    input_batch['sentence_length'] = sent_length
-    for key, value in input_batch.items():
-        # print(key, value)
-        if key != 'label_ids_original':
-            input_batch[key] = torch.tensor(value)
-    return input_batch
+    test(model, best_model_path, args, test_loader, device, metric(idx2label, use_crf=eval(args.use_crf)))
 
 
 def light_mode(args):
@@ -351,7 +382,7 @@ def light_mode(args):
         word_alphabet, char_alphabet, label_alphabet \
             = init_alphabet(word_counter, char_counter, label_counter, use_crf=eval(args.use_crf))
         num_labels = len(label_alphabet) if eval(args.use_crf) else len(label_alphabet) - 1
-        print(len(word_alphabet))
+        # print(label_alphabet.token2id)
         if word_vector:
             word_alphabet.add(word_vector)
         tokenizer.add_alphabet(word_alphabet, label_alphabet, char_alphabet)
@@ -403,11 +434,12 @@ def light_mode(args):
             {'params': [p for n, p in model_light.named_parameters() if 'context' not in n],
              }
         ]
-        optimizer = torch.optim.SGD(param_group, lr=args.learning_rate, momentum=args.momentum)
+        # optimizer = torch.optim.AdamW(param_group, lr=args.learning_rate, momentum=args.momentum)
+        optimizer = torch.optim.AdamW(param_group, lr=args.learning_rate)
         # optimizer = torch.optim.SGD(model_light.parameters(), lr=args.learning_rate, momentum=args.momentum)
         # scheduler = StepLR(optimizer, step_size=30, gamma=0.1)
         scheduler = None
-        metric = METRIC.get(args.task_type, NERMetric)
+        metric = METRIC.get(args.mode + '_' + args.task_type, NERMetric)
         loss_fn = torch.nn.CrossEntropyLoss()
         best_model_path = train(model_light,
                                 train_loader,
@@ -421,7 +453,7 @@ def light_mode(args):
                                 loss_fn=loss_fn,
                                 idx2label=label_alphabet,
                                 lr_decay_scheduler=scheduler)
-        test(best_model_path, args, test_loader, device,
+        test(model_light, best_model_path, args, test_loader, device,
              metric(label_alphabet, use_crf=eval(args.use_crf)))
 
 
@@ -441,43 +473,59 @@ def train(model,
     """
     base train for all modes, return saved best model path
     """
-    print(f'Training mode: {args.mode}; Using model name: {args.model_name}.....')
     num_parameters = 0
+    trainable_parameters = 0
     for n, p in model.named_parameters():
+        if p.requires_grad:
+            trainable_parameters += p.numel()
         num_parameters += p.numel()
-    print(f'Number of parameters: {num_parameters}')
+    print(f'Total parameters: {num_parameters}, Trainable Parameters: {trainable_parameters}')
     best_f1 = 0
     no_improve_step = 0
     all_step = len(train_loader) * args.num_epoch
     global_step = 0
     best_model_path = None
     cache_dir = os.path.join(args.cache_dir, args.dataset_name, args.model_name)
-    for epoch in range(1, args.num_epoch + 1):
+    if eval(args.use_tagger):
+        cache_dir = cache_dir + '-tagger'
+    if eval(args.use_context):
+        cache_dir = cache_dir + '-' + args.context_mechanism
+    if eval(args.use_crf):
+        cache_dir = cache_dir + '-' + 'CRF'
+    for epoch in tqdm(range(1, args.num_epoch + 1), desc="Epoch"):
         local_step = 0
         epoch_loss = 0.
-        epoch_step = len(train_loader)
-        p_bar = tqdm.tqdm(train_loader)
+        # epoch_step = len(train_loader)
+        # p_bar = tqdm.tqdm(train_loader)
         model.train()
+        p_bar = tqdm(train_loader)
+        epoch_step = len(train_loader)
         metric_ = metric(idx2label, use_crf=eval(args.use_crf))
-
         for batch in p_bar:
             batch_to_device(batch, device=device)
-            if eval(args.use_crf):
-                loss = model.loss(**batch)
-                output, _ = model(**batch)
-                # print(type(output))
-            else:
-                output, gate_weight = model(**batch)
-                if args.mode == 'pretrained':
-                    loss = output[0]
-                else:
-                    gold_labels = batch['label_ids']
-                    loss = loss_fn(output.view(-1, num_labels), gold_labels.view(-1))
-            # torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=args.grad_norm)
             optimizer.zero_grad()
+            with torch.cuda.amp.autocast(enabled=bool(args.fp16)):
+                if eval(args.use_crf):
+                    loss = model.loss(**batch)
+                    # output, _ = model(**batch)
+                    # print(type(output))
+                else:
+                    output, gate_weight = model(**batch)
+                    if args.mode == 'pretrained':
+                        loss = output[0]
+                    else:
+                        gold_labels = batch['label_ids']
+                        loss = loss_fn(output.view(-1, num_labels), gold_labels.view(-1))
             loss.backward()
+            # torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            torch.nn.utils.clip_grad_value_(model.parameters(), clip_value=0.1)
             optimizer.step()
+            # with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+            #              record_shapes=True,
+            #              profile_memory=True,  # This flags enables tracking of memory allocation and deallocation.
+            #              with_stack=True) as prof:
 
+            # print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=10))
             if warmup_strategy:
                 warmup_strategy.step()
             local_step += 1
@@ -507,13 +555,14 @@ def train(model,
             best_f1 = eval_f1['f1']
             logger.info(f"{global_step}/{all_step}")
             if args.mode == 'pretrained':
-                save_name = "{}_{}.pth".format(args.model_name, epoch)
+                model_name = args.model_name.replace('/', '')
+                save_name = "{}_{}.pth".format(model_name, epoch)
             else:
                 save_name = "{}_{}.pth".format('lstm', epoch)
             if not os.path.exists(cache_dir):
                 os.makedirs(cache_dir)
             best_model_path = os.path.join(cache_dir, save_name)
-            torch.save(model, best_model_path)
+            torch.save(model.state_dict(), best_model_path)
             no_improve_step = 0
         else:
             no_improve_step += 1
@@ -524,12 +573,13 @@ def train(model,
     return best_model_path
 
 
-def test(best_model_path, args, test_loader, device, metric):
+def test(model_arch, best_model_path, args, test_loader, device, metric):
+    if '/' in args.model_name:
+        setattr(args, 'model_name', args.model_name.replace('/', ''))
     if best_model_path:
         logger.info("-" * 25 + 'test' + '-' * 25)
         logger.info(f'Best model: {os.path.basename(best_model_path)}')
-        model_test = torch.load(best_model_path)
-
+        model_arch.load_state_dict(torch.load(best_model_path))
         best_file_dir = os.path.join(args.result_dir, args.dataset_name, args.mode)
         if not os.path.exists(best_file_dir):
             os.makedirs(best_file_dir)
@@ -543,12 +593,12 @@ def test(best_model_path, args, test_loader, device, metric):
             prefix_ = prefix_ + '_' + args.context_mechanism
         prefix_ = prefix_ + '_' + str(args.batch_size) + '_' + str(args.learning_rate)
         best_file_name = prefix_ + '.txt'
-        besst_model_name = prefix_ + '.pth'
 
         f = open(os.path.join(best_file_dir, best_file_name), 'w')
-        torch.save(model_test, os.path.join(best_file_dir, besst_model_name))
-        f1, fined_f1 = evaluate(test_loader, metric, model_test,
-                                device, args.mode, eval(args.use_crf))
+
+        f1, fined_f1 = evaluate(test_loader, metric, model_arch,
+                                device, mode=args.mode, use_crf=eval(args.use_crf))
+
         f.write(best_model_path + '\n')
         f.write("Overall results: \n")
         logger.info("Overall results: ")
@@ -568,8 +618,17 @@ def test(best_model_path, args, test_loader, device, metric):
                                                                             fined_f1['recall'],
                                                                             fined_f1['f1']))
         f.close()
+        if eval(args.fix_pretrained):
+            suffix = '-fixed'
+        else:
+            suffix = ''
         if eval(args.use_context):
-            score_file_name = args.model_name.split('-')[0] + '-context.csv'
+            if eval(args.use_tagger):
+                # score_file_name = args.model_name.split('-')[0] + f'-tagger-{args.context_mechanism}-wo-special-tokens' + suffix
+                score_file_name = args.model_name.split('-')[0] + f'-tagger-{args.context_mechanism}' + suffix
+            else:
+                # score_file_name = args.model_name.split('-')[0] + f'-{args.context_mechanism}-wo-special-tokens' + suffix
+                score_file_name = args.model_name.split('-')[0] + f'-{args.context_mechanism}' + suffix
             columns = ['dataset', 'batch_size', 'learning_rate', 'learning_rate_tagger',
                        'learning_rate_context', 'model', 'context', 'dropout', 'f1-score']
             score_df_this = pd.DataFrame(
@@ -585,20 +644,50 @@ def test(best_model_path, args, test_loader, device, metric):
                     round(f1['f1'], 4) * 100,
 
                 ]], columns=columns)
-        else:
-            score_file_name = args.model_name.split('-')[0] + '-tagger.csv'
-            columns = ['dataset', 'batch_size', 'learning_rate', 'learning_rate_tagger',
-                       'learning_rate_context', 'model', 'context', 'f1-score']
+        elif eval(args.use_crf):
+            if eval(args.use_tagger):
+                score_file_name = args.model_name.split('-')[0] + f'-tagger-crf' + suffix
+            else:
+                score_file_name = args.model_name.split('-')[0] + f'-crf' + suffix
+            columns = ['dataset', 'batch_size', 'learning_rate', 'learning_rate_tagger', 'learning_rate_crf',
+                       'model', 'f1-score']
             score_df_this = pd.DataFrame(
                 [[args.dataset_name,
                   args.batch_size,
                   args.learning_rate,
                   args.learning_rate_tagger,
-                  args.learning_rate_context,
-                  args.model_name, args.context_mechanism, round(f1['f1'], 4) * 100
+                  args.learning_rate_crf,
+                  args.model_name,
+                  round(f1['f1'], 4) * 100
                   ]], columns=columns)
 
+        elif eval(args.use_tagger):
+            # score_file_name = args.model_name.split('-')[0] + '-tagger-wo-special-tokens' + suffix
+            score_file_name = args.model_name.split('-')[0] + '-tagger' + suffix
+
+            columns = ['dataset', 'batch_size', 'learning_rate', 'learning_rate_tagger',
+                       'model', 'f1-score']
+            score_df_this = pd.DataFrame(
+                [[args.dataset_name,
+                  args.batch_size,
+                  args.learning_rate,
+                  args.learning_rate_tagger,
+                  args.model_name, round(f1['f1'], 4) * 100
+                  ]], columns=columns)
+
+        else:
+            score_file_name = args.model_name.split('-')[0]
+            columns = ['dataset', 'batch_size', 'learning_rate', 'weight_decay',
+                       'model', 'f1-score']
+            score_df_this = pd.DataFrame(
+                [[args.dataset_name,
+                  args.batch_size,
+                  args.learning_rate,
+                  args.weight_decay,
+                  args.model_name, round(f1['f1'], 4) * 100
+                  ]], columns=columns)
         score_file_dir = os.path.join(args.scores, args.dataset_name)
+        score_file_name += '.csv'
         if not os.path.exists(score_file_dir):
             os.makedirs(score_file_dir)
         score_file = os.path.join(score_file_dir, score_file_name)
@@ -616,19 +705,28 @@ def evaluate(data_loader, metrics, model, device, mode='pretrained', use_crf=Fal
     """
     model.eval()
     # metrics = NERMetric(id2token=idx2label)
+    inference_start = time.time()
     for batch in data_loader:
         batch_to_device(batch, device)
         output, gate_weight = model(**batch)
         # torch.save(gate_weight[0].cpu(),'global.pt')
         # torch.save(gate_weight[1].cpu(), 'local.pt')
         # break
+
         if mode == 'pretrained':
+
             if use_crf:
-                logits = output
-                gold_label = batch['labels_original']
+                logits = output[1]  # (batch_size, seqlen -2), before viterbi code we already remove [SEP] and [CLS]
+                gold_label = batch['labels']
+                mask = batch['word_seq_len']
+                # # remove [CLS] and [SEP] in gold labels, attention_mask and inference_masks.
+                # (batch_size, seq_len) -> (batch_size, seq_len -2)
             else:
                 logits = torch.argmax(output[1], dim=-1)
                 gold_label = batch['labels']
+                mask = batch['inference_masks']
+            # remove the automatic added [CLS] and [SEP] token
+            metrics(logits, gold_label, mask=mask)
         else:
             if use_crf:
                 logits = output
@@ -636,7 +734,8 @@ def evaluate(data_loader, metrics, model, device, mode='pretrained', use_crf=Fal
             else:
                 logits = torch.argmax(output, dim=-1)
                 gold_label = batch['label_ids']
-        metrics(logits, gold_label)
+            metrics(logits, gold_label)
+    print(f'infernce time eclipse: {time.time() - inference_start}')
     f1, fine_grained_f1 = metrics.calculate_f1()
     return f1, fine_grained_f1
 
@@ -646,8 +745,8 @@ def feed_seed(seed):
     torch.cuda.manual_seed_all(seed)
     np.random.seed(seed)
     random.seed(seed)
-    torch.backends.cudnn.benchmark = False
-    torch.use_deterministic_algorithms(True)
+    # torch.backends.cudnn.benchmark = False
+    # torch.use_deterministic_algorithms(True)
 
 
 if __name__ == "__main__":
@@ -655,9 +754,7 @@ if __name__ == "__main__":
     log_name = arguments.model_name
     if eval(arguments.use_tagger):
         log_name += '-tagger'
-        arguments.model_dir += 'tagger'
     if eval(arguments.use_context):
-        arguments.model_dir += '-context'
         log_name += '-context'
     feed_seed(arguments.seed)
     log_path = os.path.join('log', log_name)

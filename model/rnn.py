@@ -67,7 +67,6 @@ class RNNNet(nn.Module):
         self.use_crf = use_crf
         self.classify_layer = nn.Linear(hidden_size, num_labels)
         self.dropout = nn.Dropout(p=0.1)
-        self.hidden_size = hidden_size
 
     def _build_features(self,
                 sentence_ids=None,
@@ -154,8 +153,8 @@ class RNNNet(nn.Module):
                                        char_ids=char_ids,
                                        extra_char_feature=extra_char_feature)
         if self.use_context:
-            forward_global = h_n[0, :, :]
-            backward_global = rnn_out[:, 0, int(self.hidden_size//2):]
+            forward_global = h_n[0]
+            backward_global = h_n[1]
             rnn_out, gate_weight = self.context_mechanism(rnn_out, forward_global, backward_global)
         loss = self.crf.loss(rnn_out, label_ids, masks_)
         return loss
@@ -186,13 +185,3 @@ class CharCNN(nn.Module):
         # -> (batch_size, max_word_length, hidden_dim)
         # char_cnn_out = f.max_pool1d(char_cnn_out, char_cnn_out.size(2))
         return char_cnn_out
-
-
-
-
-
-
-
-
-
-

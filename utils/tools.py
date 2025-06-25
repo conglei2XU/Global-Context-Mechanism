@@ -87,5 +87,3 @@ def verify_path(path: str, sub_name: str) -> str:
 
 def timestamp():
     return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
-
-

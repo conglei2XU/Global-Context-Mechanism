@@ -11,3 +11,6 @@ default_token_label_crf = {
 default_token_label = {
     UNK: 0
 }
+START_TAG = '[CLS]'
+STOP_TAG = '[SEP]'
+PAD = '[PAD]'

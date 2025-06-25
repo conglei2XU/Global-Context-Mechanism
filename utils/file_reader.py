@@ -1,3 +1,4 @@
+import json
 from collections import Counter
 
 
@@ -52,12 +53,9 @@ def ner_reader_cn(dataset_path):
         labels = []
         for line in f:
             if line != '\n' and line != '\t\n':
-                if '\t' in line:
-                    pairs = line.split('\t')
-                else:
-                    pairs = line.split()
+                pairs = line.strip()
                 sentence.append(pairs[0])
-                labels.append(pairs[1].strip())
+                labels.append(pairs[-1])
             else:
                 if sentence:
                     yield sentence, labels
@@ -66,32 +64,26 @@ def ner_reader_cn(dataset_path):
             yield sentence, labels
 
 
+def jsonl_reader(dataset_path):
+    """
+    read data form jsonl files with structure {
+    'content': content,
+    'label': label
+    }
+    return content[list of str] and label[list of label]
+    """
+    over_length_sent = 1
+    with open(dataset_path, 'r', encoding='utf-8') as f:
+        for line in f:
+            data_item = json.loads(line)
+            sentence = list(data_item['content'])
+            label = list(data_item['label'])
+            yield sentence, label
+
+
+
+
 if __name__ == "__main__":
-    dataset = '../Dataset/Ner/weibo/train.txt'
-
-
-
-    # file_name = 'valid.txt'
-    # number_sentence = 0
-    # with open(file_name, 'r', encoding='utf-8') as f:
-    #     all_sentence, all_labels = [], []
-    #     sentence, labels = [], []
-    #     for line in f:
-    #         if line != '\n':
-    #             pairs = line.strip().split()
-    #             sentence.append(pairs[0])
-    #             labels.append(pairs[-1])
-    #         else:
-    #             all_sentence.append(sentence)
-    #             all_labels.append(labels)
-    #             sentence, labels = [], []
-    #     if sentence:
-    #         all_sentence.append(sentence)
-    #         all_labels.append(labels)
-    # idx = 0
-    # for sentence_, labels_ in ner_reader(file_name):
-    #     assert sentence_ == all_sentence[idx]
-    #     assert labels_ == all_labels[idx]
-    #     assert len(sentence_) == len(labels_)
-    #     idx += 1
+    data_path = '../Dataset/NER/ChinaUnicomNER/train_BIO.jsonl'
+    jsonl_reader(data_path)
 
