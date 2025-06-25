@@ -68,13 +68,13 @@ python main.py --mode pretrained --model_name bert-base-cased --batch_size 32 --
 You can perform hyperparameter search using the `hypara_search_context.sh` script. The syntax is as follows:
 
 ```bash
-bash hypara_search_context.sh task_type dataset_name model_name context_mechanism device
+bash hyper_search/hypara_search_context.sh task_type dataset_name model_name context_mechanism device
 ```
 
 **Example:**
 
 ```bash
-bash hypara_search_context.sh absa rest14 bert-base-cased global cuda:1
+bash hyper_search/hypara_search_context.sh absa rest14 bert-base-cased global cuda:1
 ```
 
 ## Details of parameters
